@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DEPTH, FONT, RENDER_SCALE, VIEW_W, VIEW_H } from '../config';
+import { DEPTH, FONT_S, FONT_M, FONT_L, RENDER_SCALE, WORLD_W, WORLD_H } from '../config';
 import { toCss } from '../art/palette';
 import { NONE, SPRITE_PIXELS } from '../art/pixel';
 import type { Actor } from '../entities/actor';
@@ -20,10 +20,6 @@ interface Debris {
   ground: boolean;
 }
 
-const mul = (c: number, t: number) =>
-  ((((c >> 16) & 255) * ((t >> 16) & 255)) / 255) << 16 |
-  ((((c >> 8) & 255) * ((t >> 8) & 255)) / 255) << 8 |
-  (((c & 255) * (t & 255)) / 255);
 
 /** 이펙트 모음: 파티클, 픽셀 잔해, 그을음 자국, 광채, 텍스트(풀링) */
 export class Vfx {
@@ -36,8 +32,8 @@ export class Vfx {
   lighting: Lighting | null = null;
 
   constructor(private readonly s: Phaser.Scene) {
-    this.debrisG = s.add.graphics().setDepth(DEPTH.vfx - 1);
-    this.decals = s.add.renderTexture(0, 0, VIEW_W, VIEW_H).setOrigin(0).setDepth(DEPTH.decal);
+    this.debrisG = s.add.graphics().setDepth(DEPTH.debris);
+    this.decals = s.add.renderTexture(0, 0, WORLD_W, WORLD_H).setOrigin(0).setDepth(DEPTH.decal);
     this.decalStamp = s.make.image({ key: 'scorch', add: false });
   }
 
@@ -50,6 +46,7 @@ export class Vfx {
         scale: { start: 1, end: 0 },
         alpha: { start: 1, end: 0.3 },
         tint: color,
+        blendMode: Phaser.BlendModes.ADD,
         emitting: false,
       });
       e.setDepth(DEPTH.vfx);
@@ -91,7 +88,7 @@ export class Vfx {
         vx: (Math.random() - 0.5) * 20,
         vy: (Math.random() - 0.5) * 6,
         vz: 10 + Math.random() * 15,
-        color: 0x5c5274,
+        color: 0x5a6988,
         life: 0,
         max: 0.3 + Math.random() * 0.2,
         ground: false,
@@ -100,7 +97,7 @@ export class Vfx {
   }
 
   /** 사망 분해: 지금 보이는 프레임의 픽셀을 그대로 파티클로 흩뿌린다 */
-  disintegrate(a: Actor, tint: number): void {
+  disintegrate(a: Actor, _tint: number): void {
     const img = a.bodyImg;
     const bodyFrames = SPRITE_PIXELS.get(img.texture.key);
     const elemFrames = SPRITE_PIXELS.get(a.elemImg.texture.key);
@@ -115,7 +112,7 @@ export class Vfx {
       for (let x = 0; x < body.w; x += step) {
         const e = elem ? elem.get(x, y) : NONE;
         const b = body.get(x, y);
-        const c = e !== NONE ? mul(e, tint) : b;
+        const c = e !== NONE ? e : b;
         if (c === NONE) continue;
         const wx = ox + (img.flipX ? body.w - 1 - x : x);
         const height = img.y - (oy + y);
@@ -174,8 +171,10 @@ export class Vfx {
     }
   }
 
-  private animate(dur: number, draw: (g: Phaser.GameObjects.Graphics, t: number) => void, depth: number = DEPTH.vfx) {
+  /** 원소 이펙트: ADD 블렌드로 그려서 조명 위에서 빛나게 */
+  private animate(dur: number, draw: (g: Phaser.GameObjects.Graphics, t: number) => void, depth: number = DEPTH.vfx, add = true) {
     const g = this.s.add.graphics().setDepth(depth);
+    if (add) g.setBlendMode(Phaser.BlendModes.ADD);
     draw(g, 0);
     this.s.tweens.addCounter({
       from: 0,
@@ -192,15 +191,20 @@ export class Vfx {
 
   /** 더하기 광채 (조명 위에 얹혀 빛나 보임) */
   glow(x: number, y: number, r: number, color: number, dur = 0.25, alpha = 0.9): void {
-    const img = this.s.add.image(x, y, 'glow').setTint(color).setBlendMode(Phaser.BlendModes.ADD).setDepth(DEPTH.glow);
-    img.setScale(r / 16).setAlpha(alpha);
-    this.s.tweens.add({ targets: img, alpha: 0, scale: (r / 16) * 1.3, duration: dur * 1000, onComplete: () => img.destroy() });
+    // 계단식 픽셀 광채를 정수배로만 키움
+    const sc = Math.max(1, Math.round(r / 16));
+    const img = this.s.add.image(Math.round(x), Math.round(y), 'glow', '0').setTint(color).setBlendMode(Phaser.BlendModes.ADD).setDepth(DEPTH.glow);
+    img.setScale(sc).setAlpha(alpha);
+    this.s.tweens.add({ targets: img, alpha: 0, duration: dur * 1000, onComplete: () => img.destroy() });
   }
 
   ring(x: number, y: number, r0: number, r1: number, color: number, dur = 0.25, width = 1.5): void {
+    x = Math.round(x);
+    y = Math.round(y);
     this.animate(dur, (g, t) => {
-      g.lineStyle(width * (1 - t * 0.5), color, 1 - t);
-      g.strokeEllipse(x, y, (r0 + (r1 - r0) * t) * 2, (r0 + (r1 - r0) * t) * 1.5);
+      const r = Math.round(r0 + (r1 - r0) * t);
+      g.lineStyle(Math.max(1, Math.round(width * (1 - t * 0.5))), color, 1 - t);
+      g.strokeEllipse(x, y, r * 2, Math.round(r * 1.5));
     });
   }
 
@@ -213,7 +217,8 @@ export class Vfx {
       const cut = half * 2 * t * 0.7;
       const s0 = reverse ? a0 : a0 + cut;
       const s1 = reverse ? a1 - cut : a1;
-      g.fillStyle(color, 0.7 * (1 - t));
+      // 처음 30%는 밝은 원색 그대로, 이후 단계적으로 사라짐
+      g.fillStyle(color, t < 0.3 ? 1 : 0.6 * (1 - t));
       g.beginPath();
       g.arc(x, y, r, s0, s1, false);
       g.arc(x, y, r * ((heavy ? 0.72 : 0.8) + 0.14 * t), s1, s0, true);
@@ -300,6 +305,7 @@ export class Vfx {
       onUpdate: (tween) => {
         const t = tween.getValue() ?? 1;
         g.clear();
+        this.lighting?.add(x, y, r * 2.5, color, 0.35 + 0.3 * t);
         g.lineStyle(1, color, 0.6 + 0.4 * Math.sin(t * 30));
         g.strokeEllipse(x, y, r * 2, r * 1.5);
         g.fillStyle(color, 0.12 + 0.28 * t);
@@ -315,7 +321,8 @@ export class Vfx {
     };
   }
 
-  afterimage(a: Actor, color: number, alpha = 0.45): void {
+  /** 잔상: 원소색으로 채워 ADD로 겹침 → 탁해지지 않고 빛나는 꼬리 */
+  afterimage(a: Actor, color: number, alpha = 0.5): void {
     for (const src of [a.bodyImg, a.elemImg]) {
       const img = this.s.add
         .image(src.x, src.y, src.texture.key, src.frame.name)
@@ -324,8 +331,9 @@ export class Vfx {
         .setScale(src.scaleX, src.scaleY)
         .setTintFill(color)
         .setAlpha(alpha)
-        .setDepth(src.depth - 0.5);
-      this.s.tweens.add({ targets: img, alpha: 0, duration: 220, onComplete: () => img.destroy() });
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(DEPTH.vfx - 1);
+      this.s.tweens.add({ targets: img, alpha: 0, duration: 200, ease: 'Stepped', easeParams: [4], onComplete: () => img.destroy() });
     }
   }
 
@@ -333,9 +341,10 @@ export class Vfx {
     const t =
       this.textPool.pop() ??
       this.s.add
-        .text(0, 0, '', { fontFamily: FONT, stroke: '#0e0b14', strokeThickness: 3 })
+        .text(0, 0, '', { fontFamily: FONT_S, fontSize: '8px' })
         .setOrigin(0.5)
-        .setResolution(RENDER_SCALE);
+        .setResolution(RENDER_SCALE)
+        .setShadow(1, 1, '#181425', 0, false, true);
     t.setActive(true).setVisible(true).setAlpha(1).setScale(1).setDepth(DEPTH.text);
     return t;
   }
@@ -345,23 +354,33 @@ export class Vfx {
     this.textPool.push(t);
   }
 
-  floatText(x: number, y: number, str: string, color: number, size = 6, dur = 0.7, rise = 12, pop = false): void {
+  /** size: 8(작게) · 10(보통) · 12(굵게) · 24 — 픽셀 폰트 설계 크기만 사용, 확대 연출 없음 */
+  floatText(x: number, y: number, str: string, color: number, size = 8, dur = 0.7, rise = 12, pop = false): void {
     const t = this.text();
-    t.setText(str).setFontSize(size).setColor(toCss(color)).setPosition(Math.round(x), Math.round(y));
+    const family = size >= 12 ? FONT_L : size >= 10 ? FONT_M : FONT_S;
+    const px = size >= 24 ? 24 : size >= 12 ? 12 : size >= 10 ? 10 : 8;
+    t.setFontFamily(family).setFontSize(px).setText(str).setColor(toCss(color)).setPosition(Math.round(x), Math.round(y));
     if (pop) {
-      t.setScale(1.6);
-      this.s.tweens.add({ targets: t, scale: 1, duration: 140, ease: 'Back.Out' });
+      // 크기 대신 위로 톡 튀는 움직임으로 강조 (정수 좌표 유지)
+      t.y += 4;
     }
-    this.s.tweens.add({ targets: t, y: y - rise, duration: dur * 1000, ease: 'Cubic.Out', onComplete: () => this.release(t) });
+    this.s.tweens.add({
+      targets: t,
+      y: Math.round(y - rise),
+      duration: dur * 1000,
+      ease: 'Cubic.Out',
+      onUpdate: () => t.setY(Math.round(t.y)),
+      onComplete: () => this.release(t),
+    });
     this.s.tweens.add({ targets: t, alpha: 0, delay: dur * 600, duration: dur * 400 });
   }
 
   number(x: number, y: number, dmg: number, color: number, big: boolean): void {
     const v = Math.max(1, Math.round(dmg));
-    this.floatText(x + Phaser.Math.Between(-5, 5), y, String(v), color, 6, big ? 0.7 : 0.5, big ? 14 : 10, big);
+    this.floatText(x + Phaser.Math.Between(-5, 5), y, String(v), color, 8, big ? 0.7 : 0.5, big ? 14 : 10, big);
   }
 
   reactionText(x: number, y: number, name: string, color: number, tier: number): void {
-    this.floatText(x, y, name, color, tier === 2 ? 12 : 6, 0.9, 16, true);
+    this.floatText(x, y, name, color, tier === 2 ? 12 : 10, 0.9, 16, true);
   }
 }

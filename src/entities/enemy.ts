@@ -9,7 +9,7 @@ import { DATA, colorOf, type ReactionDef } from '../element/data';
 import type { HitInfo, HitResult } from '../combat/damage';
 import { ENEMY_ANIMS } from '../art/enemySprites';
 import type { AnimDef } from '../art/heroSprites';
-import { DEPTH, FONT, RENDER_SCALE } from '../config';
+import { DEPTH, FONT_S, RENDER_SCALE } from '../config';
 import { playSfx } from '../audio/sfx';
 
 export type EnemyKind = 'charger' | 'shooter' | 'bomber' | 'shielder' | 'summoner' | 'wisp';
@@ -52,7 +52,7 @@ export const ELITE_NAME: Record<EliteMod, string> = {
 };
 
 const WISP_ANIMS: Record<string, AnimDef> = Object.fromEntries(
-  ['idle', 'walk', 'windup', 'attack', 'hurt'].map((k) => [k, { start: 0, count: 4, fps: 10, loop: true }]),
+  ['idle', 'walk', 'windup', 'attack', 'hurt'].map((k) => [k, { start: 0, count: 4, durs: [0.09, 0.12, 0.08, 0.11], loop: true }]),
 );
 
 export interface EnemyOpts {
@@ -108,12 +108,13 @@ export class Enemy extends Actor {
     super(s, group, x, y, {
       sheet: kind,
       anims: kind === 'wisp' ? WISP_ANIMS : ENEMY_ANIMS,
-      radius: Math.round(d.radius * (giant ? 1.35 : o.small ? 0.75 : 1)),
+      radius: Math.round(d.radius * (giant ? 1.8 : 1)),
       hp: Math.round(d.hp * (o.hpMult ?? 1) * (o.elite ? 2.2 : 1) * (giant ? 1.4 : 1) * (o.small ? 0.4 : 1)),
       team: 'enemy',
       tint: ELEMENT_COLOR[element],
       originY: kind === 'wisp' ? 13 / 16 : 26.5 / 32,
-      height: kind === 'wisp' ? 10 : giant ? 26 : 18,
+      height: kind === 'wisp' ? 10 : giant ? 36 : 18,
+      look: element,
     });
     this.def = d;
     this.elite = o.elite ?? null;
@@ -128,13 +129,14 @@ export class Enemy extends Actor {
     this.spawnT = 0.45;
     this.elementImmune = false;
     this.play('walk');
-    if (giant) this.squashX = this.squashY = 1.35;
-    if (o.small) this.squashX = this.squashY = 0.75;
+    // 거대화는 정수배(2배)로만 키움 → 픽셀 크기가 섞이지 않음
+    if (giant) this.squashX = this.squashY = 2;
     if (this.elite) {
       this.tag = s.add
-        .text(x, y, ELITE_NAME[this.elite], { fontFamily: FONT, fontSize: '6px', color: '#ffe08a', stroke: '#0e0b14', strokeThickness: 2 })
+        .text(x, y, ELITE_NAME[this.elite], { fontFamily: FONT_S, fontSize: '8px', color: '#fee761' })
         .setOrigin(0.5, 1)
         .setResolution(RENDER_SCALE)
+        .setShadow(1, 1, '#181425', 0, false, true)
         .setDepth(DEPTH.text - 1);
     }
   }
@@ -415,7 +417,7 @@ export class Enemy extends Actor {
     if (this.kind === 'shielder' && !h.isReaction && !h.environmental && !h.fromAbove && h.fromX !== undefined && h.fromY !== undefined) {
       const from = Math.atan2(h.fromY - this.y, h.fromX - this.x);
       if (Math.abs(Phaser.Math.Angle.Wrap(from - this.faceAngle)) < 1.2) {
-        this.s.vfx.floatText(this.x, this.y - this.height - 4, '막힘', 0xc2bad6, 6, 0.4, 8);
+        this.s.vfx.floatText(this.x, this.y - this.height - 4, '막힘', 0xc0cbdc, 6, 0.4, 8);
         this.s.vfx.spark(this.x + Math.cos(this.faceAngle) * 8, this.y - 8, 0xffffff, 6, 60, 40);
         playSfx('block');
         return 'blocked';
@@ -468,7 +470,7 @@ export class Enemy extends Actor {
     const g = this.hud;
     const t = this.s.gameTime;
     if (this.elite) {
-      g.lineStyle(1, 0xffe08a, 0.5 + 0.3 * Math.sin(t * 6));
+      g.lineStyle(1, 0xfee761, 0.5 + 0.3 * Math.sin(t * 6));
       g.strokeEllipse(this.x, this.y + 1, this.radius * 3.4, this.radius * 1.6);
     }
     if (this.shieldReaction) {
@@ -485,7 +487,7 @@ export class Enemy extends Actor {
       g.fillStyle(c, 0.12);
       g.fillPoints(pts, true);
       if (this.tag) this.tag.setText(`실드: ${def.name}`).setColor(toCss(c));
-    } else if (this.tag && this.elite === 'shield') this.tag.setText(ELITE_NAME.shield).setColor('#ffe08a');
+    } else if (this.tag && this.elite === 'shield') this.tag.setText(ELITE_NAME.shield).setColor('#fee761');
     if (this.element2) {
       g.fillStyle(ELEMENT_COLOR[this.element2]);
       g.fillRect(Math.round(this.x) + 6, Math.round(this.y - this.height - 2), 2, 2);

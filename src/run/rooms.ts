@@ -261,18 +261,28 @@ export const HUB_TEMPLATE: RoomTemplate = {
   ],
 };
 
-export const DOOR_SLOTS = [7, 14, 21]; // 위쪽 벽 문 위치 (왼쪽 칸 x)
-export const BRAZIER_COLS = [3, 11, 18, 26];
-export const ENTRANCE_COL = 14;
+/** 방 크기 36×21: 위쪽 2줄 벽, 안쪽 34×18, 아래 1줄 벽. 템플릿(28×14)은 가운데에 놓고 둘레는 바닥 */
+export const DOOR_SLOTS = [10, 17, 24]; // 위쪽 벽 문 위치 (2칸 문의 왼쪽 칸)
+export const BRAZIER_COLS = [4, 14, 21, 31];
+export const ENTRANCE_COL = 17;
+const W = 36;
+const INNER_W = 34;
+const INNER_H = 18;
+const PAD_X = 3;
+const PAD_TOP = 2;
 
-/** 안쪽 템플릿을 30×17 전체 레이아웃으로 감싼다 */
+/** 안쪽 템플릿을 36×21 전체 레이아웃으로 감싼다 */
 export function wrapTemplate(t: RoomTemplate, opts: { braziers?: boolean } = {}): string[] {
-  const W = 30;
   const top = '#'.repeat(W);
   const face = Array.from({ length: W }, (_, c) => (opts.braziers !== false && BRAZIER_COLS.includes(c) ? 'b' : '#')).join('');
-  const inner = t.rows.map((r) => '#' + r.padEnd(28, '.').slice(0, 28) + '#');
-  while (inner.length < 14) inner.push('#' + '.'.repeat(28) + '#');
-  return [top, face, ...inner.slice(0, 14), '#'.repeat(W)];
+  const blank = '.'.repeat(INNER_W);
+  const rows: string[] = [];
+  for (let r = 0; r < INNER_H; r++) {
+    const src = t.rows[r - PAD_TOP];
+    const inner = src === undefined ? blank : '.'.repeat(PAD_X) + src.padEnd(28, '.').slice(0, 28) + '.'.repeat(INNER_W - PAD_X - 28);
+    rows.push('#' + inner + '#');
+  }
+  return [top, face, ...rows, '#'.repeat(W)];
 }
 
 /** 템플릿에서 특수 표식 위치 찾기 (타일 좌표) */

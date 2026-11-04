@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { E32, E3, ELEM_GRAYS, ELEMENT_RAMP, SELOUT, luminance, type LookName } from './palette';
 
 /** 투명 */
 export const NONE = -1;
@@ -108,19 +109,62 @@ export class Px {
   }
 }
 
-/** 본체+원소 레이어 합집합 둘레에 1px 외곽선을 본체 레이어에 그린다 */
-export function outline(body: Px, elem: Px | null, color: number): void {
+/**
+ * 셀아웃(selective outline): 본체+원소 레이어 둘레에 1px 외곽선.
+ * 색은 순검정이 아니라 맞닿은 안쪽 색의 진한 버전(SELOUT). 원소 레이어에만 닿으면 원소 레이어에 E3로 찍어
+ * 원소별로 구울 때 그 원소의 외곽선 색이 되게 한다. `fallback`을 주면 그 색으로 고정.
+ */
+export function outline(body: Px, elem: Px | null, fallback?: number): void {
   const w = body.w;
   const h = body.h;
-  const filled = (x: number, y: number) => body.get(x, y) !== NONE || (elem !== null && elem.get(x, y) !== NONE);
-  const add: number[] = [];
+  const bodyAdds: [number, number][] = [];
+  const elemAdds: number[] = [];
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      if (filled(x, y)) continue;
-      if (filled(x - 1, y) || filled(x + 1, y) || filled(x, y - 1) || filled(x, y + 1)) add.push(y * w + x);
+      if (body.get(x, y) !== NONE || (elem && elem.get(x, y) !== NONE)) continue;
+      let best = -1;
+      let bestLum = 1e9;
+      let touchElem = false;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        const bc = body.get(x + dx, y + dy);
+        if (bc !== NONE) {
+          const o = SELOUT[bc] ?? E32.black;
+          const l = luminance(o);
+          if (l < bestLum) {
+            bestLum = l;
+            best = o;
+          }
+        } else if (elem && elem.get(x + dx, y + dy) !== NONE) touchElem = true;
+      }
+      if (best !== -1) bodyAdds.push([y * w + x, fallback ?? best]);
+      else if (touchElem) elemAdds.push(y * w + x);
     }
   }
-  for (const i of add) body.d[i] = color;
+  for (const [i, c] of bodyAdds) body.d[i] = c;
+  if (elem) for (const i of elemAdds) elem.d[i] = fallback ?? E3;
+}
+
+/** 원소 레이어 회색(E0~E3)을 색 램프로 바꾼 사본 */
+export function bake(src: Px, ramp: [number, number, number, number]): Px {
+  const p = new Px(src.w, src.h);
+  for (let i = 0; i < src.d.length; i++) {
+    const c = src.d[i];
+    const k = ELEM_GRAYS.indexOf(c);
+    p.d[i] = k >= 0 ? ramp[k] : c;
+  }
+  return p;
+}
+
+/** 본체 + 원소 레이어를 원소별로 구워서 등록: key_body, key_elem(중립), key_elem_fire … */
+export function registerActor(scene: Phaser.Scene, key: string, bodies: Px[], elems: Px[], looks: LookName[] = ['fire', 'water', 'wind', 'lightning']): void {
+  registerSheet(scene, `${key}_body`, bodies);
+  registerSheet(scene, `${key}_elem`, elems.map((e) => bake(e, ELEMENT_RAMP.neutral)));
+  for (const l of looks) registerSheet(scene, `${key}_elem_${l}`, elems.map((e) => bake(e, ELEMENT_RAMP[l])));
 }
 
 /** 스프라이트 픽셀 데이터 보관 — 사망 시 픽셀 파티클 분해에 사용 */

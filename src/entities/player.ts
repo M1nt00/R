@@ -2,11 +2,13 @@ import Phaser from 'phaser';
 import type { RoomScene } from '../scenes/RoomScene';
 import { Actor } from './actor';
 import { ELEMENTS, ELEMENT_NAME, type Element } from '../element/types';
-import { ELEMENT_COLOR, ELEMENT_LIGHT } from '../art/palette';
+import { ELEMENT_COLOR, ELEMENT_LIGHT, ELEMENT_RAMP, C, E32, SELOUT } from '../art/palette';
 import { RULES } from '../element/data';
 import type { HitInfo, HitResult } from '../combat/damage';
 import { basicAttack, skillAttack, SKILL_COOLDOWN, type Payload, type SwingAnim } from '../combat/attacks';
-import { HERO_ANIMS, type Dir } from '../art/heroSprites';
+import { HERO_ANIMS, HERO_ANCHORS, type Dir } from '../art/heroSprites';
+import { SpringChain } from './spring';
+import { DEPTH } from '../config';
 import { playSfx } from '../audio/sfx';
 
 const SPEED = 105;
@@ -76,6 +78,12 @@ export class Player extends Actor {
   private trailT = 0;
   private readonly keys: Keys;
   private readonly aura: Phaser.GameObjects.Graphics;
+  private readonly springBack: Phaser.GameObjects.Graphics;
+  private readonly springFront: Phaser.GameObjects.Graphics;
+  private readonly hair: SpringChain;
+  private readonly ribbons: SpringChain[];
+  private glowFx: { color: number } | null = null;
+  private lastDt = 1 / 60;
   inputLocked = false;
 
   constructor(s: RoomScene, group: Phaser.Physics.Arcade.Group, x: number, y: number, st: PlayerStats, element: Element) {
@@ -88,6 +96,7 @@ export class Player extends Actor {
       tint: ELEMENT_COLOR[element],
       originY: 27 / 32,
       height: 20,
+      look: element,
     });
     this.hp = st.hp;
     this.element = element;
@@ -99,6 +108,13 @@ export class Player extends Actor {
     this.potions = st.potions;
     this.keys = s.input.keyboard!.addKeys('W,A,S,D,SPACE,ONE,TWO,THREE,FOUR,Q') as Keys;
     this.aura = s.add.graphics().setDepth(4);
+    this.springBack = s.add.graphics();
+    this.springFront = s.add.graphics();
+    this.hair = new SpringChain(7, 2, x, y - 20);
+    this.ribbons = [new SpringChain(5, 2, x, y - 18, 0.84), new SpringChain(4, 2, x, y - 18, 0.8)];
+    // 검날(원소 레이어)에만 은은한 글로우
+    const fx = this.elemImg.preFX?.addGlow(ELEMENT_COLOR[element], 1.2, 0, false, 0.1, 4);
+    this.glowFx = fx ?? null;
     this.play('idle_down');
   }
 
@@ -107,6 +123,7 @@ export class Player extends Actor {
   }
 
   update(dt: number): void {
+    this.lastDt = dt;
     if (this.dead) {
       this.updateDeath(dt);
       return;
@@ -177,13 +194,13 @@ export class Player extends Actor {
         if (ptr.rightButtonDown() && this.skillCd[this.element] <= 0) {
           this.skillCd[this.element] = this.freeLightningT > 0 && this.element === 'lightning' ? 0.25 : SKILL_COOLDOWN[this.element];
           const anim = skillAttack(this.s, this, this.makePayload());
-          this.startAction(anim, 0.25);
+          this.startAction(anim);
           this.attackCd = Math.max(this.attackCd, 0.15);
         } else if (ptr.leftButtonDown() && this.attackCd <= 0) {
           const t = basicAttack(this.s, this, this.makePayload());
           this.attackCd = t.cooldown;
           this.lockT = t.lock;
-          this.startAction(t.anim, Math.max(0.2, t.lock + 0.08));
+          this.startAction(t.anim);
         }
       }
     }
@@ -196,10 +213,16 @@ export class Player extends Actor {
       vx = this.rollDir.x * ROLL_SPEED;
       vy = this.rollDir.y * ROLL_SPEED;
       const p = 1 - this.rollT / ROLL_TIME;
-      this.squashX = p < 0.2 ? 1.2 : p > 0.8 ? 0.9 : 1;
-      this.squashY = p < 0.2 ? 0.8 : p > 0.8 ? 1.12 : 1;
+      // 살짝 떠오르며 구름 → 그림자는 작아졌다 커짐
+      const arc = Math.sin(Math.PI * Math.min(1, p * 1.15));
+      this.hop = arc * 4;
+      this.shadowScale = 1 - arc * 0.35;
       this.trail(dt, ELEMENT_LIGHT[this.element]);
-      if (this.rollT <= 0) this.squashX = this.squashY = 1;
+      if (this.rollT <= 0) {
+        this.hop = 0;
+        this.shadowScale = 1;
+        this.s.vfx.dust(this.x, this.y, 4);
+      }
     } else if (this.dashT > 0) {
       this.dashT -= dt;
       vx = this.dashDir.x * DASH_SPEED;
@@ -212,9 +235,7 @@ export class Player extends Actor {
         this.dashHit.add(t);
         this.onDashHit?.(t);
       }
-      this.squashX = 1.25;
-      this.squashY = 0.85;
-      if (this.dashT <= 0) this.squashX = this.squashY = 1;
+
     } else {
       let sp = SPEED * this.speedMult * (this.lockT > 0 ? 0.4 : 1);
       if (this.boostT > 0) sp *= 1.3;
@@ -240,10 +261,11 @@ export class Player extends Actor {
     return this.swingFlip ? 'attack' : 'attack2';
   }
 
-  private startAction(anim: SwingAnim, dur: number) {
+  private startAction(anim: SwingAnim) {
     this.action = anim;
-    this.actionT = dur;
-    this.play(`${anim}_${this.dirFor(this.aimAngle)}`, true);
+    const key = `${anim}_${this.dirFor(this.aimAngle)}`;
+    this.actionT = HERO_ANIMS[key].durs.reduce((a, b) => a + b, 0);
+    this.play(key, true);
   }
 
   private dirFor(angle: number): Dir {
@@ -281,6 +303,8 @@ export class Player extends Actor {
     if (el === this.element || this.switchCd > 0) return;
     this.element = el;
     this.elementTint = ELEMENT_COLOR[el];
+    this.setLook(el);
+    if (this.glowFx) this.glowFx.color = ELEMENT_COLOR[el];
     this.switchCd = SWITCH_CD;
     this.empowered = this.s.engine.mods.relics.has('twin_hands') ? 2 : 1;
     if (this.s.engine.mods.relics.has('boots')) this.boostT = 2;
@@ -327,7 +351,7 @@ export class Player extends Actor {
     if (this.dead || n <= 0) return;
     const before = this.hp;
     this.hp = Math.min(this.maxHp, this.hp + n);
-    if (this.hp - before >= 5) this.s.vfx.floatText(this.x, this.y - 26, `+${Math.round(this.hp - before)}`, 0x7dff9a, 6, 0.7, 12);
+    if (this.hp - before >= 5) this.s.vfx.floatText(this.x, this.y - 26, `+${Math.round(this.hp - before)}`, 0x63c74d, 6, 0.7, 12);
   }
 
   refundRoll(): void {
@@ -338,8 +362,8 @@ export class Player extends Actor {
     if (this.potions <= 0 || this.hp >= this.maxHp) return;
     this.potions--;
     this.heal(Math.round(this.maxHp * 0.35));
-    this.s.vfx.ring(this.x, this.y - 6, 4, 20, 0x7dff9a, 0.4, 2);
-    this.s.vfx.spark(this.x, this.y - 8, 0x7dff9a, 14, 40, 70);
+    this.s.vfx.ring(this.x, this.y - 6, 4, 20, 0x63c74d, 0.4, 2);
+    this.s.vfx.spark(this.x, this.y - 8, 0x63c74d, 14, 40, 70);
     playSfx('heal');
   }
 
@@ -356,7 +380,7 @@ export class Player extends Actor {
     }
     if (this.hurtInvulnT > 0 && !h.isReaction && !h.environmental) return 'ignored';
     if (!h.isReaction && !h.environmental && this.s.fields.inSteam(this.x, this.y) && Math.random() < 0.5) {
-      this.s.vfx.floatText(this.x, this.y - 26, '회피', 0xe6eef5, 6, 0.5, 8);
+      this.s.vfx.floatText(this.x, this.y - 26, '회피', 0xffffff, 6, 0.5, 8);
       return 'dodged';
     }
     return 'ok';
@@ -382,8 +406,8 @@ export class Player extends Actor {
     this.hurtInvulnT = HURT_INVULN;
     this.hurtAnimT = 0.2;
     this.s.shake(0.15, 0.006);
-    this.s.vfx.spark(this.x, this.y - 10, 0xff5566, 8, 60, 60);
-    this.s.vfx.splat(this.x, this.y, 0x6a1a28, 3, 4);
+    this.s.vfx.spark(this.x, this.y - 10, 0xf6757a, 8, 60, 60);
+    this.s.vfx.splat(this.x, this.y, 0x3e2731, 3, 4);
     playSfx('hurt');
   }
 
@@ -406,18 +430,54 @@ export class Player extends Actor {
       this.s.vfx.disintegrate(this, this.elementTint);
       this.s.vfx.glow(this.x, this.y - 10, 30, this.elementTint, 0.5);
       this.aura.destroy();
+      this.springBack.destroy();
+      this.springFront.destroy();
       this.destroyVisuals();
     }
+  }
+
+  /** 포니테일·리본: 프레임별 앵커에 매달린 스프링을 몸 앞/뒤에 그린다 */
+  private drawSprings(frame: number) {
+    const an = HERO_ANCHORS[frame];
+    if (!an) return;
+    const img = this.bodyImg;
+    const flip = img.flipX;
+    const toWorld = (c: number, r: number): [number, number] => [
+      img.x + (flip ? 15 - c : c - 16) + 0.5,
+      img.y - 27 + r + 0.5,
+    ];
+    const [hx, hy] = toWorld(an.hair[0], an.hair[1]);
+    const [bx, by] = toWorld(an.band[0], an.band[1]);
+    const dt = Math.min(this.lastDt, 1 / 30);
+    const t = this.s.gameTime;
+    // 바라보는 반대쪽으로 살짝 날림 + 미세한 바람
+    const away = this.facing * -60;
+    const wind = Math.sin(t * 3.1) * 25;
+    this.hair.update(hx, hy, dt, away * 0.6 + wind * 0.4, 520);
+    this.ribbons[0].update(bx, by, dt, away + wind, 300 + Math.sin(t * 7) * 60);
+    this.ribbons[1].update(bx, by + 1, dt, away * 0.8 - wind * 0.5, 340 + Math.cos(t * 6) * 60);
+    const ramp = ELEMENT_RAMP[this.element];
+    const depth = DEPTH.actor + Math.round(this.y);
+    const back = this.springBack.setDepth(depth - 0.2);
+    const front = this.springFront.setDepth(depth + 0.02);
+    back.clear();
+    front.clear();
+    const gHair = an.front ? front : back;
+    const gBand = an.front ? front : back;
+    this.hair.draw(gHair, [C.hairS0, C.hairS0, C.hairS1, C.hairS1, C.hairS2, C.hairS2], [2, 2, 2, 1, 1, 1], SELOUT[E32.silver]);
+    this.ribbons[0].draw(gBand, [ramp[1], ramp[1], ramp[2], ramp[2]], [1], ramp[3]);
+    this.ribbons[1].draw(gBand, [ramp[1], ramp[2], ramp[2]], [1], ramp[3]);
   }
 
   override syncVisuals(): void {
     if (this.dead) {
       if (this.deathT > 0) {
         const a = this.anims[this.animName];
-        const idx = Math.min(Math.floor(this.animT * a.fps), a.count - 1);
+        const idx = this.frameIndex(a, this.animT);
         this.bodyImg.setFrame(String(a.start + idx)).setScale(1).clearTint().setAlpha(1);
         this.elemImg.setFrame(String(a.start + idx)).setScale(1);
         this.hud.clear();
+        this.drawSprings(a.start + idx);
       }
       return;
     }
@@ -425,6 +485,9 @@ export class Player extends Actor {
     const blink = this.hurtInvulnT > 0.06 && Math.floor(this.s.gameTime * 20) % 2 === 0;
     this.bodyImg.setAlpha(blink ? 0.4 : 1);
     this.elemImg.setAlpha(blink ? 0.4 : 1);
+    this.springBack.setAlpha(blink ? 0.4 : 1);
+    this.springFront.setAlpha(blink ? 0.4 : 1);
+    this.drawSprings(Number(this.bodyImg.frame.name));
 
     const g = this.aura;
     g.clear();
@@ -442,7 +505,7 @@ export class Player extends Actor {
     g.fillStyle(0xffffff, 0.55);
     g.fillRect(Math.round(this.x + Math.cos(this.aimAngle) * 14) - 1, Math.round(this.y - 4 + Math.sin(this.aimAngle) * 10) - 1, 2, 2);
     // 플레이어 주변 빛
-    this.s.lighting.add(this.x, this.y - 8, 95, 0xfff4e0, 0.75);
+    this.s.lighting.add(this.x, this.y - 8, 95, 0xffffff, 0.75);
     this.s.lighting.add(this.x, this.y - 8, 40, ELEMENT_COLOR[this.element], 0.5);
   }
 }

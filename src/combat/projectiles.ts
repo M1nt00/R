@@ -28,6 +28,7 @@ interface Projectile {
   spec: ProjectileSpec;
   img: Phaser.GameObjects.Image;
   glow: Phaser.GameObjects.Image;
+  fx: { color: number } | null;
   x: number;
   y: number;
   life: number;
@@ -39,7 +40,7 @@ interface Projectile {
 
 /** 투사체 — 이미지 오브젝트 풀링, 광채·꼬리 */
 export class ProjectileSystem {
-  private readonly pool: { img: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image }[] = [];
+  private readonly pool: { img: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; fx: { color: number } | null }[] = [];
   private list: Projectile[] = [];
 
   constructor(private readonly s: RoomScene) {}
@@ -48,9 +49,13 @@ export class ProjectileSystem {
     const o =
       this.pool.pop() ??
       {
-        img: this.s.add.image(0, 0, spec.texture),
-        glow: this.s.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD),
+        img: this.s.add.image(0, 0, spec.texture).setBlendMode(Phaser.BlendModes.ADD),
+        glow: this.s.add.image(0, 0, 'glow', '0').setBlendMode(Phaser.BlendModes.ADD),
+        fx: null as { color: number } | null,
       };
+    // 원소 투사체에만 은은한 글로우 (postFX)
+    if (!o.fx) o.fx = o.img.preFX?.addGlow(spec.color, 1.5, 0, false, 0.1, 4) ?? null;
+    if (o.fx) o.fx.color = spec.color;
     o.img
       .setTexture(spec.texture, '0')
       .setTint(spec.color)
@@ -59,10 +64,10 @@ export class ProjectileSystem {
       .setDepth(DEPTH.projectile)
       .setPosition(spec.x, spec.y)
       .setRotation(Math.atan2(spec.vy, spec.vx));
-    o.glow.setTint(spec.color).setActive(true).setVisible(true).setDepth(DEPTH.glow).setScale(0.55).setAlpha(0.7);
+    o.glow.setTint(spec.color).setActive(true).setVisible(true).setDepth(DEPTH.glow).setScale(1).setAlpha(0.45);
     const hitSet = new Set<Actor>();
     if (spec.ignore) hitSet.add(spec.ignore);
-    this.list.push({ spec, img: o.img, glow: o.glow, x: spec.x, y: spec.y, life: spec.life, hitSet, lastTile: -1, trailT: 0, alive: true });
+    this.list.push({ spec, img: o.img, glow: o.glow, fx: o.fx, x: spec.x, y: spec.y, life: spec.life, hitSet, lastTile: -1, trailT: 0, alive: true });
   }
 
   update(dt: number): void {
@@ -73,8 +78,8 @@ export class ProjectileSystem {
       p.x += sp.vx * dt;
       p.y += sp.vy * dt;
       p.life -= dt;
-      p.img.setPosition(p.x, p.y);
-      p.glow.setPosition(p.x, p.y);
+      p.img.setPosition(Math.round(p.x), Math.round(p.y));
+      p.glow.setPosition(Math.round(p.x), Math.round(p.y));
       p.trailT -= dt;
       if (p.trailT <= 0) {
         p.trailT = 0.03;
@@ -121,6 +126,6 @@ export class ProjectileSystem {
     this.s.vfx.spark(p.x, p.y + 6, p.spec.color, 5, 50, 40);
     p.img.setActive(false).setVisible(false);
     p.glow.setActive(false).setVisible(false);
-    this.pool.push({ img: p.img, glow: p.glow });
+    this.pool.push({ img: p.img, glow: p.glow, fx: p.fx });
   }
 }

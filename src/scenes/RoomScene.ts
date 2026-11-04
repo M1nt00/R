@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { VIEW_W, VIEW_H, RENDER_SCALE, TILE, COLS, ROWS, DEPTH, FONT } from '../config';
+import { VIEW_W, VIEW_H, RENDER_SCALE, TILE, COLS, ROWS, DEPTH, FONT_S, WORLD_W, WORLD_H } from '../config';
 import { Terrain } from '../element/terrain';
 import { ReactionEngine } from '../element/reactionEngine';
 import { DATA, colorOf } from '../element/data';
@@ -120,6 +120,8 @@ export class RoomScene extends Phaser.Scene {
   private emberT = 0;
   private portalImgs: Phaser.GameObjects.Image[] = [];
   layout: string[] = [];
+  private lookX = 0;
+  private lookY = 0;
 
   constructor() {
     super('Room');
@@ -148,11 +150,12 @@ export class RoomScene extends Phaser.Scene {
     const tpl = this.templateFor();
     this.roomName = this.run ? `${REGION.name} ${this.run.depth}/${REGION.length} · ${tpl.name}` : tpl.name;
     this.layout = wrapTemplate(tpl, { braziers: true });
-    if (this.mode === 'boss' || this.mode === 'hub') this.layout[1] = this.layout[1].replace(/./g, (ch, i) => (i === 7 || i === 22 ? 'b' : '#'));
+    if (this.mode === 'boss' || this.mode === 'hub') this.layout[1] = this.layout[1].replace(/./g, (_ch, i) => (i === 9 || i === 26 ? 'b' : '#'));
 
-    this.cameras.main.setZoom(RENDER_SCALE).centerOn(VIEW_W / 2, VIEW_H / 2).setRoundPixels(true);
-    this.cameras.main.fadeIn(350, 0, 0, 0);
-    this.physics.world.setBounds(0, 0, VIEW_W, VIEW_H);
+    const cam = this.cameras.main;
+    cam.setZoom(1).setBounds(0, 0, WORLD_W, WORLD_H).setRoundPixels(true);
+    cam.fadeIn(350, 24, 20, 37);
+    this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
     this.input.mouse?.disableContextMenu();
     this.keyE = this.input.keyboard!.addKey('E');
 
@@ -160,7 +163,7 @@ export class RoomScene extends Phaser.Scene {
     this.hitstop = new Hitstop();
     this.vfx = new Vfx(this);
     const theme = this.mode === 'hub' ? 'shrine' : this.mode === 'boss' ? 'boss' : 'ash';
-    this.lighting = new Lighting(this, theme === 'shrine' ? 0x7e78a2 : theme === 'boss' ? 0x664050 : 0x5e5676);
+    this.lighting = new Lighting(this, theme === 'shrine' ? 0x5a6988 : theme === 'boss' ? 0x733e39 : 0x5a6988);
     this.vfx.lighting = this.lighting;
     this.terrain = new Terrain(this, this.layout, theme);
     this.combat = new Combat(this);
@@ -169,7 +172,7 @@ export class RoomScene extends Phaser.Scene {
     this.engine.secondaryUnlocked = new Set(meta.secondary);
     this.fields = new FieldSystem(this);
     this.projectiles = new ProjectileSystem(this);
-    this.add.image(0, 0, 'vignette').setOrigin(0).setDepth(DEPTH.vignette);
+    this.add.image(0, 0, 'vignette').setOrigin(0).setDepth(DEPTH.vignette).setScrollFactor(0);
 
     this.walls = this.physics.add.staticGroup();
     for (let r = 0; r < ROWS; r++) {
@@ -187,10 +190,16 @@ export class RoomScene extends Phaser.Scene {
 
     this.buildDecor();
     this.spawnPlayer();
+    // 카메라: 부드럽게 따라가되 마우스 방향으로 살짝 앞서감
+    cam.startFollow(this.player.phys, true, 0.12, 0.12);
+    cam.centerOn(this.player.x, this.player.y);
+    this.lookX = 0;
+    this.lookY = 0;
     this.prompt = this.add
-      .text(0, 0, '', { fontFamily: FONT, fontSize: '6px', color: '#ffe08a', stroke: '#0e0b14', strokeThickness: 2 })
+      .text(0, 0, '', { fontFamily: FONT_S, fontSize: '8px', color: '#fee761' })
       .setOrigin(0.5, 1)
       .setResolution(RENDER_SCALE)
+      .setShadow(1, 1, '#181425', 0, false, true)
       .setDepth(DEPTH.text);
 
     this.state = 'play';
@@ -240,7 +249,7 @@ export class RoomScene extends Phaser.Scene {
       ? { maxHp: run.maxHp, hp: run.hp, atk: base.atk, speed: base.speed, rollMax: base.rollMax, attach: base.attach, potions: run.potions }
       : { maxHp: base.maxHp, hp: base.maxHp, atk: base.atk, speed: base.speed, rollMax: base.rollMax, attach: base.attach, potions: base.potions };
     const el = (this.registry.get('element') as Element | undefined) ?? 'fire';
-    const pos = this.mode === 'hub' ? { x: VIEW_W / 2, y: 200 } : { x: ENTRANCE_COL * TILE + TILE, y: (ROWS - 2) * TILE + 6 };
+    const pos = this.mode === 'hub' ? { x: WORLD_W / 2, y: 15 * TILE + 8 } : { x: ENTRANCE_COL * TILE + TILE, y: (ROWS - 2) * TILE + 6 };
     this.player = new Player(this, this.playerGroup, pos.x, pos.y, st, el);
   }
 
@@ -252,14 +261,14 @@ export class RoomScene extends Phaser.Scene {
       case 'hub':
         playMusic('hub');
         this.setupHub();
-        this.scheduler.after(0.4, () => this.banner('원소의 성소', 0xd9b8ff));
+        this.scheduler.after(0.4, () => this.banner('원소의 성소', 0xc0cbdc));
         break;
       case 'combat':
       case 'elite':
         playMusic('run');
         this.buildWaves(run!.room);
         this.scheduler.after(0.9, () => this.spawnWave());
-        this.banner(this.mode === 'elite' ? '엘리트 방' : this.roomName.split(' · ')[1], this.mode === 'elite' ? 0xffe08a : 0xffffff);
+        this.banner(this.mode === 'elite' ? '엘리트 방' : this.roomName.split(' · ')[1], this.mode === 'elite' ? 0xfee761 : 0xffffff);
         break;
       case 'shop':
         playMusic('hub');
@@ -271,7 +280,7 @@ export class RoomScene extends Phaser.Scene {
       case 'heal':
         playMusic('hub');
         this.setupFountain();
-        this.banner('고요한 샘', 0xff8a9a);
+        this.banner('고요한 샘', 0xf6757a);
         this.scheduler.after(0.6, () => this.openDoors());
         this.state = 'cleared';
         break;
@@ -306,8 +315,8 @@ export class RoomScene extends Phaser.Scene {
     if (A) {
       const { x, y } = this.tileCenter(A.c, A.r);
       this.add.image(x, y + 8, 'altar', '0').setOrigin(0.5, 1).setDepth(DEPTH.actor + y);
-      this.add.image(x, y + 8, 'altar_elem', '0').setOrigin(0.5, 1).setDepth(DEPTH.actor + y + 0.1).setTint(0xc59cff);
-      this.glows.push({ x, y: y - 8, r: 70, color: 0xc59cff, a: 0.8 });
+      this.add.image(x, y + 8, 'altar_elem_arcane', '0').setOrigin(0.5, 1).setDepth(DEPTH.actor + y + 0.1);
+      this.glows.push({ x, y: y - 8, r: 70, color: 0xc0cbdc, a: 0.8 });
       this.interactables.push(new Interactable(x, y + 8, 22, 'E 원소의 제단 — 성장', () => this.requestUi({ type: 'altar' })));
       const altarBlock = this.walls.create(x, y + 4, 'px') as Phaser.Physics.Arcade.Sprite;
       altarBlock.setVisible(false).setDisplaySize(24, 8).refreshBody();
@@ -318,7 +327,7 @@ export class RoomScene extends Phaser.Scene {
       const { x, y } = this.tileCenter(m.c, m.r);
       const el = ELEMENTS[i];
       this.add.image(x, y + 8, 'pillar_el', '0').setOrigin(0.5, 1).setDepth(DEPTH.actor + y);
-      this.add.image(x, y + 8, 'pillar_el_elem', '0').setOrigin(0.5, 1).setDepth(DEPTH.actor + y + 0.1).setTint(ELEMENT_COLOR[el]);
+      this.add.image(x, y + 8, `pillar_el_elem_${el}`, '0').setOrigin(0.5, 1).setDepth(DEPTH.actor + y + 0.1);
       this.glows.push({ x, y: y - 16, r: 60, color: ELEMENT_COLOR[el], a: 0.8 });
       const blk = this.walls.create(x, y + 4, 'px') as Phaser.Physics.Arcade.Sprite;
       blk.setVisible(false).setDisplaySize(10, 8).refreshBody();
@@ -351,9 +360,10 @@ export class RoomScene extends Phaser.Scene {
       const iconName = item.type === 'relic' ? item.relic!.icon : item.type === 'boon' ? 'boon' : item.type === 'potion' ? 'potion' : 'heart';
       const icon = this.add.image(x, y - 6, 'icons', String(ICON[iconName])).setDepth(DEPTH.actor + y + 1);
       const price = this.add
-        .text(x, y + 16, `${item.price}G`, { fontFamily: FONT, fontSize: '6px', color: toCss(C.gold0), stroke: '#0e0b14', strokeThickness: 2 })
+        .text(x, y + 16, `${item.price}G`, { fontFamily: FONT_S, fontSize: '8px', color: toCss(C.gold0) })
         .setOrigin(0.5, 1)
         .setResolution(RENDER_SCALE)
+        .setShadow(1, 1, '#181425', 0, false, true)
         .setDepth(DEPTH.text - 2);
       this.glows.push({ x, y: y - 6, r: 40, color: C.gold0, a: 0.6 });
       const it = new Interactable(x, y + 6, 18, `E 구매 — ${item.name} (${item.price}G)`, () => this.buy(item, it, [icon, price]));
@@ -415,7 +425,7 @@ export class RoomScene extends Phaser.Scene {
     this.waveIdx++;
     const els: Element[] = [];
     while (els.length < plan.kinds.length) els.push(...Phaser.Utils.Array.Shuffle([...ELEMENTS]));
-    if (this.waveCount > 1) this.banner(`${this.waveIdx} / ${this.waveCount}`, 0xc2bad6);
+    if (this.waveCount > 1) this.banner(`${this.waveIdx} / ${this.waveCount}`, 0xc0cbdc);
     plan.kinds.forEach((kind, i) => {
       const pos = this.randomSpawnPoint();
       const el = els[i];
@@ -509,6 +519,7 @@ export class RoomScene extends Phaser.Scene {
       this.updateAmbient(dt);
     }
 
+    this.updateCamera();
     this.player.syncVisuals();
     for (const e of this.enemies) e.syncVisuals();
     this.boss?.syncVisuals();
@@ -519,6 +530,18 @@ export class RoomScene extends Phaser.Scene {
     this.updateInteraction();
     this.checkDoors();
     this.renderLights();
+  }
+
+  /** 마우스(화면 기준) 쪽으로 최대 28px 앞서 보기 — 부드럽게 보간 */
+  private updateCamera(): void {
+    const ptr = this.input.activePointer;
+    const dx = Phaser.Math.Clamp((ptr.x - VIEW_W / 2) / (VIEW_W / 2), -1, 1);
+    const dy = Phaser.Math.Clamp((ptr.y - VIEW_H / 2) / (VIEW_H / 2), -1, 1);
+    const tx = this.player.dead || this.state === 'leaving' ? 0 : dx * 28;
+    const ty = this.player.dead || this.state === 'leaving' ? 0 : dy * 18;
+    this.lookX += (tx - this.lookX) * 0.08;
+    this.lookY += (ty - this.lookY) * 0.08;
+    this.cameras.main.setFollowOffset(-this.lookX, -this.lookY);
   }
 
   private updateWaves(dt: number): void {
@@ -541,14 +564,14 @@ export class RoomScene extends Phaser.Scene {
     this.emberT -= dt;
     if (this.emberT <= 0 && this.mode !== 'hub') {
       this.emberT = 0.12;
-      const x = Math.random() * VIEW_W;
-      const y = 40 + Math.random() * 220;
+      const x = Math.random() * WORLD_W;
+      const y = 40 + Math.random() * (WORLD_H - 50);
       this.vfx.spark(x, y, this.mode === 'boss' ? C.fire1 : Math.random() < 0.3 ? C.fire2 : C.stone2, 1, 6, 30);
     }
     if (this.mode === 'hub' && this.emberT <= 0) {
       this.emberT = 0.2;
       const el = Phaser.Utils.Array.GetRandom([...ELEMENTS]);
-      this.vfx.spark(Math.random() * VIEW_W, 60 + Math.random() * 190, ELEMENT_LIGHT[el], 1, 5, 25);
+      this.vfx.spark(Math.random() * WORLD_W, 60 + Math.random() * (WORLD_H - 80), ELEMENT_LIGHT[el], 1, 5, 25);
     }
   }
 
@@ -556,14 +579,14 @@ export class RoomScene extends Phaser.Scene {
     const t = this.gameTime;
     for (const f of this.flames) {
       f.img.setFrame(String(Math.floor(t * 10 + f.ph) % 4));
-      this.lighting.add(f.x, f.y + 8, 110 + Math.sin(t * 9 + f.ph) * 6, 0xffb070, 0.85);
+      this.lighting.add(f.x, f.y + 8, 110 + Math.sin(t * 9 + f.ph) * 6, 0xe4a672, 0.85);
     }
     for (const g of this.glows) this.lighting.add(g.x, g.y, g.r + Math.sin(t * 3 + g.x) * 3, g.color, g.a);
     if (this.portalImgs.length) {
       const fr = String(Math.floor(t * 8) % 4);
       this.portalImgs[0].setFrame(fr);
       const el = ELEMENTS[Math.floor(t / 1.5) % 4];
-      this.portalImgs[1].setFrame(fr).setTint(ELEMENT_COLOR[el]);
+      this.portalImgs[1].setTexture(`portal_elem_${el}`, fr);
       this.lighting.add(this.portalImgs[0].x, this.portalImgs[0].y - 24, 90, ELEMENT_COLOR[el], 0.9);
     }
     this.terrain.emitLights(this.lighting, t);
@@ -646,12 +669,12 @@ export class RoomScene extends Phaser.Scene {
   private onRoomCleared(): void {
     this.state = 'cleared';
     const run = this.run!;
-    this.banner('방 클리어', 0x9fe8a8);
+    this.banner('방 클리어', 0xc0cbdc);
     this.lighting.flash(this.player.x, this.player.y, 200, 0xffffff, 0.5);
     this.hitstop.request(0.15);
     playSfx('select');
     const reward = run.room.reward;
-    const { x: cx, y: cy } = this.floorNear(VIEW_W / 2, 150);
+    const { x: cx, y: cy } = this.floorNear(WORLD_W / 2, WORLD_H / 2);
     if (reward === 'boon' || reward === 'relic') {
       this.scheduler.after(0.5, () => {
         this.pickups.push(new Pickup(this, 'reward', cx, cy, 0, reward));
@@ -699,7 +722,7 @@ export class RoomScene extends Phaser.Scene {
     startRun();
     playSfx('portal');
     this.player.inputLocked = true;
-    this.vfx.ring(this.player.x, this.player.y, 30, 2, 0xd9b8ff, 0.5, 2);
+    this.vfx.ring(this.player.x, this.player.y, 30, 2, 0xc0cbdc, 0.5, 2);
     this.cameras.main.fadeOut(600, 255, 255, 255);
     this.cameras.main.once('camerafadeoutcomplete', () => this.scene.restart({}));
   }
@@ -717,7 +740,7 @@ export class RoomScene extends Phaser.Scene {
       playSfx('coin');
     } else if (p.kind === 'essence') {
       if (run) run.essence += p.value;
-      this.vfx.floatText(this.player.x, this.player.y - 26, '+정수', 0xd9b8ff, 6, 0.6, 10);
+      this.vfx.floatText(this.player.x, this.player.y - 26, '+정수', 0xc0cbdc, 6, 0.6, 10);
       playSfx('pickup');
     } else if (p.kind === 'heart') {
       this.player.heal(p.value);
@@ -743,9 +766,9 @@ export class RoomScene extends Phaser.Scene {
     this.engine.mods = computeMods(run);
     const b = BOONS.find((x) => x.id === id);
     this.player.empowered = Math.max(this.player.empowered, 0);
-    this.vfx.ring(this.player.x, this.player.y - 6, 4, 34, 0xffe08a, 0.5, 2);
-    this.vfx.spark(this.player.x, this.player.y - 10, 0xffe08a, 20, 60, 90);
-    if (b) this.vfx.floatText(this.player.x, this.player.y - 30, b.name, 0xffe08a, 6, 1, 16, true);
+    this.vfx.ring(this.player.x, this.player.y - 6, 4, 34, 0xfee761, 0.5, 2);
+    this.vfx.spark(this.player.x, this.player.y - 10, 0xfee761, 20, 60, 90);
+    if (b) this.vfx.floatText(this.player.x, this.player.y - 30, b.name, 0xfee761, 6, 1, 16, true);
     playSfx('select');
     if (source === 'reward') this.openDoors();
   }
@@ -800,8 +823,8 @@ export class RoomScene extends Phaser.Scene {
   onWallSlam(a: Actor): void {
     this.vfx.dust(a.x, a.y, 6);
     if (a.team === 'enemy' && this.engine.mods.flags.has('overload_wallslam')) {
-      this.vfx.floatText(a.x, a.y - a.height - 8, '벽치기!', 0xffcf8a, 6, 0.6, 10, true);
-      this.combat.hit(a, { damage: 15 * this.player.atkMult, color: 0xffcf8a });
+      this.vfx.floatText(a.x, a.y - a.height - 8, '벽치기!', 0xead4aa, 6, 0.6, 10, true);
+      this.combat.hit(a, { damage: 15 * this.player.atkMult, color: 0xead4aa });
       this.shake(0.1, 0.006);
       playSfx('slam');
     }
@@ -868,14 +891,14 @@ export class RoomScene extends Phaser.Scene {
     if (this.mode !== 'hub') return;
     this.trial = !this.trial;
     this.engine.secondaryUnlocked = this.trial ? new Set(DATA.secondary.map((s) => s.id)) : new Set(meta.secondary);
-    this.banner(this.trial ? '2차 반응 체험 모드 (성소 안에서만)' : '체험 모드 끔', 0xffe0a0);
+    this.banner(this.trial ? '2차 반응 체험 모드 (성소 안에서만)' : '체험 모드 끔', 0xead4aa);
   }
 
   private onDevKey(ev: KeyboardEvent): void {
     if (ev.key === 'k') {
       meta.essence += 50;
       saveMeta();
-      this.banner('개발: 정수 +50', 0xd9b8ff);
+      this.banner('개발: 정수 +50', 0xc0cbdc);
     } else if (ev.key === 'n' && this.run && this.state === 'play') {
       this.waveIdx = this.waves.length;
       this.pending = 0;

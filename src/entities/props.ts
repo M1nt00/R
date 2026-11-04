@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import type { RoomScene } from '../scenes/RoomScene';
 import { Actor } from './actor';
-import { DEPTH, FONT, RENDER_SCALE, TILE } from '../config';
+import { DEPTH, FONT_S, RENDER_SCALE, TILE } from '../config';
 import { C, ELEMENT_COLOR, toCss } from '../art/palette';
 import { ICON, type IconName } from '../art/propSprites';
 import type { RoomSpec, RewardKind } from '../run/runState';
@@ -20,11 +20,11 @@ export const REWARD_ICON: Record<RewardKind, IconName> = {
 };
 
 export const REWARD_COLOR: Record<RewardKind, number> = {
-  boon: 0xffe08a,
+  boon: 0xfee761,
   gold: C.gold0,
   relic: C.water0,
   shop: C.leather0,
-  heal: 0xff8a9a,
+  heal: 0xf6757a,
   boss: C.fire1,
 };
 
@@ -39,9 +39,10 @@ export const REWARD_LABEL: Record<RewardKind, string> = {
 
 const label = (s: Phaser.Scene, x: number, y: number, text: string, color = '#ffffff') =>
   s.add
-    .text(x, y, text, { fontFamily: FONT, fontSize: '6px', color, stroke: '#0e0b14', strokeThickness: 2 })
+    .text(x, y, text, { fontFamily: FONT_S, fontSize: '8px', color })
     .setOrigin(0.5, 1)
     .setResolution(RENDER_SCALE)
+    .setShadow(1, 1, '#181425', 0, false, true)
     .setDepth(DEPTH.text - 2);
 
 /** 위쪽 벽의 문. 열리면 다음 방 보상 아이콘이 문 위에 뜬다. */
@@ -183,8 +184,8 @@ export class Interactable {
 }
 
 const DUMMY_ANIMS: Record<string, AnimDef> = {
-  idle: { start: 0, count: 1, fps: 1, loop: true },
-  hit: { start: 1, count: 1, fps: 1, loop: false },
+  idle: { start: 0, count: 1, durs: [1], loop: true },
+  hit: { start: 1, count: 1, durs: [1], loop: false },
 };
 
 /** 훈련용 허수아비 — 죽지 않고, 최근 3초 피해량(DPS)을 보여준다 */
@@ -206,7 +207,7 @@ export class Dummy extends Actor {
     });
     this.phys.body.immovable = true;
     this.phys.body.pushable = false;
-    this.text = label(s, x, y + 12, '', '#c2bad6');
+    this.text = label(s, x, y + 12, '', '#c0cbdc');
     this.play('idle');
   }
 
@@ -222,6 +223,8 @@ export class Dummy extends Actor {
     this.text.setText(sum > 0 ? `${Math.round(sum / 3)} DPS` : '');
     const el = this.es.attached as Element | null;
     this.elementTint = el ? ELEMENT_COLOR[el] : 0xffffff;
+    // 허수아비 과녁이 지금 묻은 원소 색으로 바뀐다
+    if ((el ?? 'neutral') !== this.look) this.setLook(el ?? 'neutral');
   }
 
   override onDamaged(h: HitInfo, dmg: number): void {

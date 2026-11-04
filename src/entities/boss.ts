@@ -6,7 +6,7 @@ import { C } from '../art/palette';
 import { DATA, colorOf, type ReactionDef } from '../element/data';
 import { ELEMENTS } from '../element/types';
 import type { HitInfo, HitResult } from '../combat/damage';
-import { DEPTH } from '../config';
+import { DEPTH, WORLD_W, WORLD_H } from '../config';
 import { playSfx } from '../audio/sfx';
 
 type State =
@@ -61,6 +61,7 @@ export class Golem extends Actor {
       originY: 58 / 64,
       height: 46,
       bigShadow: true,
+      look: 'fire',
     });
     this.isBoss = true;
     this.phys.body.pushable = false;
@@ -180,7 +181,7 @@ export class Golem extends Actor {
         if (b.blocked.left || b.blocked.right || b.blocked.up || b.blocked.down) {
           this.s.shake(0.3, 0.012);
           this.s.vfx.spark(this.x + this.dir.x * 14, this.y - 10, C.stone3, 30, 140, 120);
-          this.s.vfx.floatText(this.x, this.y - this.height - 8, '벽에 충돌!', 0xffe08a, 6, 0.9, 12, true);
+          this.s.vfx.floatText(this.x, this.y - this.height - 8, '벽에 충돌!', 0xfee761, 6, 0.9, 12, true);
           playSfx('slam');
           this.setState('crashed', 1.8);
         } else if (this.stateT <= 0) this.setState('walk', 0);
@@ -257,8 +258,8 @@ export class Golem extends Actor {
     } else if (pick === 'lava') {
       const n = this.phase >= 3 ? 5 : 3;
       for (let i = 0; i < n; i++) {
-        const tx = Phaser.Math.Clamp(p.x + (i === 0 ? 0 : Phaser.Math.Between(-60, 60)), 24, 456);
-        const ty = Phaser.Math.Clamp(p.y + (i === 0 ? 0 : Phaser.Math.Between(-40, 40)), 40, 250);
+        const tx = Phaser.Math.Clamp(p.x + (i === 0 ? 0 : Phaser.Math.Between(-60, 60)), 24, WORLD_W - 24);
+        const ty = Phaser.Math.Clamp(p.y + (i === 0 ? 0 : Phaser.Math.Between(-40, 40)), 40, WORLD_H - 24);
         this.s.vfx.telegraph(tx, ty, 22, C.fire1, 0.9);
         this.s.scheduler.after(0.9, () => {
           this.s.fields.spawn({

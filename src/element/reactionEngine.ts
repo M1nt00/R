@@ -86,7 +86,7 @@ export class ReactionEngine {
     // 피뢰침: 나에게 번개가 붙으면 주변 적 전부에게 번개
     if (el === 'lightning' && target.team === 'player' && this.mods.relics.has('lightning_rod')) {
       for (const e of this.s.combat.inCircle(target.x, target.y, 90, 'enemy')) {
-        this.s.vfx.bolt(target.x, target.y - 10, e.x, e.y - 8, 0xffd447);
+        this.s.vfx.bolt(target.x, target.y - 10, e.x, e.y - 8, 0xfee761);
         this.apply(e, 'lightning', { noStack: true });
       }
     }

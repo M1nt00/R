@@ -66,7 +66,7 @@ export class Combat {
     if (dmg > 0) {
       target.hp = Math.max(0, target.hp - dmg);
       target.flash();
-      const col = h.color ?? (target.team === 'player' ? 0xff5566 : 0xffffff);
+      const col = h.color ?? (target.team === 'player' ? 0xf6757a : 0xffffff);
       this.s.vfx.number(target.x, target.y - target.height - 2, dmg, col, h.isReaction === true);
       target.onDamaged(h, dmg);
     }

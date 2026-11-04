@@ -5,7 +5,7 @@ import type { Team } from '../element/types';
 import type { HitInfo, HitResult } from '../combat/damage';
 import type { ReactionDef } from '../element/data';
 import type { AnimDef } from '../art/heroSprites';
-import { ELEMENT_COLOR, C } from '../art/palette';
+import { ELEMENT_COLOR, C, E32, type LookName } from '../art/palette';
 import { RESIDUE_COLOR } from '../element/data';
 import { DEPTH } from '../config';
 
@@ -21,6 +21,8 @@ export interface ActorOpts {
   /** 머리 위 표시 높이 */
   height: number;
   bigShadow?: boolean;
+  /** 원소 레이어 모양 (원소별로 구운 텍스처) */
+  look?: LookName;
 }
 
 /**
@@ -36,7 +38,12 @@ export abstract class Actor {
   readonly team: Team;
   readonly radius: number;
   readonly height: number;
+  readonly sheet: string;
   protected readonly anims: Record<string, AnimDef>;
+  /** 구르기 등으로 몸이 뜨는 높이 (그림자는 바닥에 남음) */
+  hop = 0;
+  shadowScale = 1;
+  look: LookName = 'neutral';
 
   hp: number;
   maxHp: number;
@@ -79,6 +86,7 @@ export abstract class Actor {
     this.radius = o.radius;
     this.height = o.height;
     this.anims = o.anims;
+    this.sheet = o.sheet;
     this.hp = o.hp;
     this.maxHp = o.hp;
     this.elementTint = o.tint;
@@ -86,9 +94,10 @@ export abstract class Actor {
     this.phys.setVisible(false);
     this.phys.body.setCircle(o.radius, 1 - o.radius, 1 - o.radius);
     this.phys.setCollideWorldBounds(true);
-    this.shadow = s.add.image(x, y, o.bigShadow ? 'shadow_big' : 'shadow').setDepth(DEPTH.shadow);
+    this.shadow = s.add.image(x, y, o.bigShadow ? 'shadow_big' : 'shadow', '0').setDepth(DEPTH.shadow).setAlpha(0.45);
     this.bodyImg = s.add.image(x, y, `${o.sheet}_body`, '0').setOrigin(0.5, o.originY);
-    this.elemImg = s.add.image(x, y, `${o.sheet}_elem`, '0').setOrigin(0.5, o.originY).setTint(o.tint);
+    this.elemImg = s.add.image(x, y, `${o.sheet}_elem`, '0').setOrigin(0.5, o.originY);
+    this.setLook(o.look ?? 'neutral');
     this.hud = s.add.graphics().setDepth(DEPTH.hud);
   }
 
@@ -102,6 +111,25 @@ export abstract class Actor {
     return this.frozenT > 0 || this.stunT > 0;
   }
 
+  /** 원소 레이어를 그 원소 색 램프로 구운 텍스처로 바꿔 끼운다 */
+  setLook(look: LookName): void {
+    this.look = look;
+    const key = look === 'neutral' ? `${this.sheet}_elem` : `${this.sheet}_elem_${look}`;
+    const k = this.s.textures.exists(key) ? key : `${this.sheet}_elem`;
+    this.elemImg.setTexture(k, this.elemImg.frame?.name ?? '0');
+  }
+
+  /** 지금 재생 중인 프레임 번호 (프레임별 시간을 누적해서 계산) */
+  protected frameIndex(a: AnimDef, t: number): number {
+    const total = a.durs.reduce((x, y) => x + y, 0);
+    let tt = a.loop ? t % total : Math.min(t, total - 1e-6);
+    for (let i = 0; i < a.count; i++) {
+      if (tt < a.durs[i]) return i;
+      tt -= a.durs[i];
+    }
+    return a.count - 1;
+  }
+
   play(name: string, restart = false): void {
     if (!this.anims[name]) return;
     if (this.animName !== name || restart) {
@@ -112,7 +140,7 @@ export abstract class Actor {
 
   get animDone(): boolean {
     const a = this.anims[this.animName];
-    return !a || (!a.loop && this.animT * a.fps >= a.count);
+    return !a || (!a.loop && this.animT >= a.durs.reduce((x, y) => x + y, 0));
   }
 
   protected baseUpdate(dt: number): void {
@@ -208,40 +236,44 @@ export abstract class Actor {
     if (this.dead) return;
     const a = this.anims[this.animName];
     if (a) {
-      let idx = Math.floor(this.animT * a.fps);
-      idx = a.loop ? idx % a.count : Math.min(idx, a.count - 1);
-      const f = String(a.start + idx);
+      const f = String(a.start + this.frameIndex(a, this.animT));
       this.bodyImg.setFrame(f);
       this.elemImg.setFrame(f);
     }
-    const t = this.s.gameTime;
-    let sx = this.squashX;
-    let sy = this.squashY;
-    if (!this.disabled && this.animName.startsWith('idle')) sy *= 1 + Math.sin(t * 3 + this.animPhase) * 0.025;
+    const sx = this.squashX;
+    const sy = this.squashY;
+    // 등장: 크기를 바꾸지 않고 아래에서부터 드러냄 (스케일 대신 크롭 → 픽셀 유지)
     if (this.spawnT > 0) {
-      const k = 1 - this.spawnT / 0.45;
-      sy *= Math.min(1, k * 1.3);
-      sx *= 1 + (1 - k) * 0.4;
+      const k = Math.min(1, (1 - this.spawnT / 0.45) * 1.2);
+      const fh = this.bodyImg.frame.height;
+      const vis = Math.round(fh * k);
+      this.bodyImg.setCrop(0, fh - vis, this.bodyImg.frame.width, vis);
+      this.elemImg.setCrop(0, fh - vis, this.elemImg.frame.width, vis);
+    } else if (this.bodyImg.isCropped) {
+      this.bodyImg.setCrop();
+      this.elemImg.setCrop();
     }
-    const x = this.phys.x;
-    const y = this.phys.y;
+    const x = Math.round(this.phys.x);
+    const y = Math.round(this.phys.y);
     const depth = DEPTH.actor + y;
-    this.bodyImg.setPosition(x, y).setScale(sx, sy).setFlipX(this.facing < 0).setDepth(depth);
-    this.elemImg.setPosition(x, y).setScale(sx, sy).setFlipX(this.facing < 0).setDepth(depth + 0.01);
-    this.shadow.setPosition(x, y + 1);
+    const vy = y - Math.round(this.hop);
+    this.bodyImg.setPosition(x, vy).setScale(sx, sy).setFlipX(this.facing < 0).setDepth(depth);
+    this.elemImg.setPosition(x, vy).setScale(sx, sy).setFlipX(this.facing < 0).setDepth(depth + 0.01);
+    // 빛이 왼쪽 위 → 그림자는 오른쪽 아래로 살짝
+    this.shadow.setPosition(x + 1, y + 1).setScale(this.shadowScale);
 
     if (this.flashT > 0) {
-      this.bodyImg.setTintFill(0xffffff);
-      this.elemImg.setTintFill(0xffffff);
+      this.bodyImg.setTintFill(E32.white);
+      this.elemImg.setTintFill(E32.white);
     } else if (this.spawnT > 0) {
       this.bodyImg.setTintFill(this.elementTint);
-      this.elemImg.setTintFill(0xffffff);
+      this.elemImg.setTintFill(E32.white);
     } else if (this.frozenT > 0) {
-      this.bodyImg.setTint(0xb0ecff);
-      this.elemImg.setTint(0xe8fbff);
+      this.bodyImg.setTint(E32.silver);
+      this.elemImg.setTint(E32.silver);
     } else {
       this.bodyImg.clearTint();
-      this.elemImg.setTint(this.elementTint);
+      this.elemImg.clearTint();
     }
     this.drawHud();
   }

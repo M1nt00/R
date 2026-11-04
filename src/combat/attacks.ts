@@ -5,6 +5,7 @@ import type { Element } from '../element/types';
 import type { HitInfo } from './damage';
 import { ELEMENT_COLOR, ELEMENT_LIGHT } from '../art/palette';
 import { playSfx } from '../audio/sfx';
+import { SWING_HIT_DELAY } from '../art/heroSprites';
 
 /**
  * 원소별 공격 세트 (고정, 런마다 안 바뀜)
@@ -62,51 +63,61 @@ export function basicAttack(s: RoomScene, p: Player, pay: Payload): AttackTiming
       const heavy = step === 2;
       const range = heavy ? 30 : 26;
       const half = heavy ? 1.4 : 1.1;
-      s.vfx.slash(p.x, p.y - 8, a + (step === 1 ? 0.15 : -0.15), range, half, color, heavy, step === 1);
-      p.lunge(heavy ? 90 : 60);
-      for (const t of s.combat.inArc(p.x, p.y, range, a, half, 'enemy')) {
-        s.combat.hit(t, hitWith(pay, heavy ? 7 : 4, { knockback: heavy ? 170 : 50, fromX: p.x, fromY: p.y, hitstop: 0.05 }));
-        s.vfx.spark(t.x, t.y - 8, ELEMENT_LIGHT.fire, 5, 70, 50);
-      }
-      s.terrain.applyElement(p.x + cos * range * 0.6, p.y + sin * range * 0.6, 10, 'fire');
-      playSfx('slash');
       p.comboStep = (step + 1) % 3;
-      p.comboT = 0.6;
-      return { cooldown: heavy ? 0.42 : 0.17, lock: 0.12, anim: step === 1 ? 'attack2' : 'attack' };
+      p.comboT = 0.7;
+      // 예비동작이 끝나고 칼이 내려오는 순간에 판정
+      s.scheduler.after(SWING_HIT_DELAY, () => {
+        if (p.dead) return;
+        s.vfx.slash(p.x, p.y - 8, a + (step === 1 ? 0.15 : -0.15), range, half, color, heavy, step === 1);
+        p.lunge(heavy ? 90 : 60);
+        for (const t of s.combat.inArc(p.x, p.y, range, a, half, 'enemy')) {
+          s.combat.hit(t, hitWith(pay, heavy ? 7 : 4, { knockback: heavy ? 170 : 50, fromX: p.x, fromY: p.y, hitstop: heavy ? 0.09 : 0.06 }));
+          s.vfx.spark(t.x, t.y - 8, ELEMENT_LIGHT.fire, 5, 70, 50);
+        }
+        s.terrain.applyElement(p.x + cos * range * 0.6, p.y + sin * range * 0.6, 10, 'fire');
+        playSfx('slash');
+      });
+      return { cooldown: heavy ? 0.46 : 0.24, lock: 0.14, anim: step === 1 ? 'attack2' : 'attack' };
     }
     case 'water': {
       const sp = 300;
-      s.projectiles.spawn({
-        x: p.x + cos * 8,
-        y: p.y - 8 + sin * 8,
-        vx: cos * sp,
-        vy: sin * sp,
-        radius: 4,
-        life: 0.55,
-        team: 'player',
-        texture: 'bolt',
-        color,
-        element: 'water',
-        hit: hitWith(pay, 3, { knockback: 40, hitstop: 0.04 }),
+      s.scheduler.after(SWING_HIT_DELAY, () => {
+        if (p.dead) return;
+        s.projectiles.spawn({
+          x: p.x + cos * 8,
+          y: p.y - 8 + sin * 8,
+          vx: cos * sp,
+          vy: sin * sp,
+          radius: 4,
+          life: 0.55,
+          team: 'player',
+          texture: 'bolt',
+          color,
+          element: 'water',
+          hit: hitWith(pay, 3, { knockback: 40, hitstop: 0.04 }),
+        });
+        s.vfx.spark(p.x + cos * 10, p.y - 8 + sin * 10, ELEMENT_LIGHT.water, 3, 40, 30);
+        playSfx('shoot');
       });
-      s.vfx.spark(p.x + cos * 10, p.y - 8 + sin * 10, ELEMENT_LIGHT.water, 3, 40, 30);
-      playSfx('shoot');
-      return { cooldown: 0.22, lock: 0.06, anim: p.nextSwing() };
+      return { cooldown: 0.24, lock: 0.08, anim: p.nextSwing() };
     }
     case 'wind': {
       const range = 38;
       const half = 1.05;
       const sw = p.nextSwing();
-      s.vfx.slash(p.x, p.y - 8, a, range, half, color, true, sw === 'attack2');
-      p.lunge(40);
-      for (const t of s.combat.inArc(p.x, p.y, range, a, half, 'enemy')) {
-        s.combat.hit(t, hitWith(pay, 3, { knockback: 130, fromX: p.x, fromY: p.y, hitstop: 0.045 }));
-      }
-      for (const k of [-0.5, 0, 0.5]) {
-        s.terrain.applyElement(p.x + Math.cos(a + k) * range * 0.6, p.y + Math.sin(a + k) * range * 0.6, 9, 'wind');
-      }
-      playSfx('whoosh');
-      return { cooldown: 0.36, lock: 0.14, anim: sw };
+      s.scheduler.after(SWING_HIT_DELAY, () => {
+        if (p.dead) return;
+        s.vfx.slash(p.x, p.y - 8, a, range, half, color, true, sw === 'attack2');
+        p.lunge(40);
+        for (const t of s.combat.inArc(p.x, p.y, range, a, half, 'enemy')) {
+          s.combat.hit(t, hitWith(pay, 3, { knockback: 130, fromX: p.x, fromY: p.y, hitstop: 0.06 }));
+        }
+        for (const k of [-0.5, 0, 0.5]) {
+          s.terrain.applyElement(p.x + Math.cos(a + k) * range * 0.6, p.y + Math.sin(a + k) * range * 0.6, 9, 'wind');
+        }
+        playSfx('whoosh');
+      });
+      return { cooldown: 0.38, lock: 0.16, anim: sw };
     }
     case 'lightning': {
       const { x: tx, y: ty } = clampAim(p, 130);

@@ -17,31 +17,31 @@ interface ThemeColors {
 
 const THEMES: Record<Theme, ThemeColors> = {
   ash: {
-    slab: [C.floor1, C.floor2],
+    slab: [C.floor1, C.floor1],
     mortar: C.floor0,
-    hi: 0x352d46,
+    hi: C.floor2,
     speck: C.stone1,
     ember: C.fire2,
     wallTop: C.stone0,
     wallFace: [C.stone1, C.stone2, C.stone0],
   },
   shrine: {
-    slab: [0x2b2a40, 0x34324c],
-    mortar: 0x1e1c2e,
-    hi: 0x46425f,
-    speck: 0x4c4868,
+    slab: [C.floor1, C.floor1],
+    mortar: C.floor0,
+    hi: C.floor2,
+    speck: C.floor2,
     ember: null,
-    wallTop: 0x24203a,
-    wallFace: [0x3d3a5a, 0x5a5680, 0x1e1c2e],
+    wallTop: 0x262b44,
+    wallFace: [0x3a4466, 0x5a6988, 0x181425],
   },
   boss: {
-    slab: [0x261b25, 0x30212c],
-    mortar: 0x170f17,
-    hi: 0x3d2a35,
-    speck: 0x4a2c30,
+    slab: [0x3e2731, 0x3e2731],
+    mortar: 0x181425,
+    hi: 0x733e39,
+    speck: 0x733e39,
     ember: C.fire1,
-    wallTop: 0x1f141c,
-    wallFace: [0x3a2430, 0x55333f, 0x170f17],
+    wallTop: 0x181425,
+    wallFace: [0x3e2731, 0x3e2731, 0x181425],
   },
 };
 
@@ -90,7 +90,8 @@ export function paintRoom(scene: Phaser.Scene, key: string, layout: string[], th
 
 function paintFloor(px: Px, t: ThemeColors, c: number, r: number, x0: number, y0: number, theme: Theme) {
   const h = hash2(c, r, 7);
-  const split = h % 10 < 4;
+  // 큰 판석 위주, 가끔 4조각. 이음매는 오른쪽·아래만 진하게, 하이라이트는 왼쪽 위 모서리 몇 픽셀만 (빛 방향 통일)
+  const split = h % 10 < 2;
   const slabs = split
     ? [
         [0, 0, 8, 8],
@@ -100,26 +101,31 @@ function paintFloor(px: Px, t: ThemeColors, c: number, r: number, x0: number, y0
       ]
     : [[0, 0, 16, 16]];
   slabs.forEach(([sx, sy, sw, sh], k) => {
-    const col = t.slab[(hash2(c * 3 + k, r * 5 + k, 3) % 100) < 55 ? 0 : 1];
+    const col = t.slab[hash2(c * 3 + k, r * 5 + k, 3) % 100 < 50 ? 0 : 1];
     for (let y = 0; y < sh; y++) {
       for (let x = 0; x < sw; x++) {
-        const X = x0 + sx + x;
-        const Y = y0 + sy + y;
         let v = col;
         if (x === sw - 1 || y === sh - 1) v = t.mortar;
-        else if (x === 0 || y === 0) v = t.hi;
-        px.set(X, Y, v);
+        else if ((x === 0 && y < 3) || (y === 0 && x < 3)) v = t.hi;
+        px.set(x0 + sx + x, y0 + sy + y, v);
       }
     }
   });
-  // 얼룩·작은 돌
-  for (let k = 0; k < 3; k++) {
+  // 성긴 디더 얼룩으로 판석마다 미세한 차이
+  if (h % 4 === 0) {
+    for (let k = 0; k < 6; k++) {
+      const hh = hash2(c * 7 + k, r * 11, 13);
+      const x = 2 + (hh % 11);
+      const y = 2 + ((hh >> 4) % 11);
+      if ((x + y) % 2 === 0) px.set(x0 + x, y0 + y, t.mortar);
+    }
+  }
+  for (let k = 0; k < 2; k++) {
     const hh = hash2(c, r, 11 + k);
-    if (hh % 3 !== 0) continue;
+    if (hh % 4 !== 0) continue;
     px.set(x0 + 2 + (hh % 11), y0 + 2 + ((hh >> 4) % 11), t.speck);
   }
-  // 균열
-  if (h % 13 === 0) {
+  if (h % 17 === 0) {
     let x = x0 + 3 + (h % 6);
     let y = y0 + 3;
     for (let k = 0; k < 7; k++) {
@@ -128,15 +134,13 @@ function paintFloor(px: Px, t: ThemeColors, c: number, r: number, x0: number, y0
       y += 1;
     }
   }
-  // 잿불 티끌
-  if (t.ember !== null && h % 17 === 0) px.set(x0 + 4 + (h % 8), y0 + 5 + ((h >> 3) % 6), t.ember);
-  // 성소 바닥 문양
+  if (t.ember !== null && h % 23 === 0) px.set(x0 + 4 + (h % 8), y0 + 5 + ((h >> 3) % 6), t.ember);
   if (theme === 'shrine') {
-    const cx = 15;
-    const cy = 8.5;
+    const cx = COLS / 2 - 0.5;
+    const cy = ROWS / 2;
     const d = Math.hypot(c - cx, (r - cy) * 1.2);
     if (Math.abs(d - 5) < 0.6 || Math.abs(d - 3) < 0.4) {
-      for (let k = 0; k < 4; k++) px.set(x0 + 4 + k * 3, y0 + 7, 0x5a5680);
+      for (let k = 0; k < 4; k++) px.set(x0 + 4 + k * 3, y0 + 7, C.stone2);
     }
   }
 }
@@ -209,10 +213,10 @@ function paintWater(px: Px, c: number, r: number, water: (dc: number, dr: number
       const cornerBR = !dn && !rt && 30 - x - y < 4;
       if (cornerTL || cornerTR || cornerBL || cornerBR) continue;
       let v: number = C.water2;
-      if (!up && y < 2) v = y === 0 ? C.ink : 0x1b3f7a;
+      if (!up && y < 2) v = y === 0 ? C.ink : 0x124e89;
       else if (!dn && y > 13) v = y === 15 ? C.water1 : C.water2;
-      else if ((!lf && x === 0) || (!rt && x === 15)) v = 0x1b3f7a;
-      else if ((y + Math.floor(hash2(c, r, 1) / 100)) % 6 === 3 && (x + c * 3) % 9 < 4) v = 0x2f74c8;
+      else if ((!lf && x === 0) || (!rt && x === 15)) v = 0x124e89;
+      else if ((y + Math.floor(hash2(c, r, 1) / 100)) % 6 === 3 && (x + c * 3) % 9 < 4) v = 0x0099db;
       px.set(x0 + x, y0 + y, v);
     }
   }
@@ -225,7 +229,7 @@ function paintChannel(px: Px, c: number, r: number, chan: (dc: number, dr: numbe
   const y0 = r * TILE;
   for (let y = 0; y < TILE; y++) {
     for (let x = 0; x < TILE; x++) {
-      let v = (x + y) % 4 === 0 ? 0x1a3236 : 0x152a2e;
+      let v = (x + y) % 4 === 0 ? 0x193c3e : 0x262b44;
       if (!chan(0, -1) && y === 0) v = C.stone2;
       if (!chan(0, 1) && y === 15) v = C.stone1;
       if (!chan(-1, 0) && x === 0) v = C.stone2;

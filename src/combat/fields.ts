@@ -50,7 +50,8 @@ export class FieldSystem {
   private readonly g: Phaser.GameObjects.Graphics;
 
   constructor(private readonly s: RoomScene) {
-    this.g = s.add.graphics().setDepth(DEPTH.field);
+    // 장판은 바닥에 깔리되 ADD로 발광
+    this.g = s.add.graphics().setDepth(DEPTH.field).setBlendMode(Phaser.BlendModes.ADD);
   }
 
   spawn(spec: FieldSpec): void {
@@ -182,7 +183,7 @@ export class FieldSystem {
         case 'steam': {
           for (let k = 0; k < 8; k++) {
             const a = k * 0.8 + time * 0.4;
-            g.fillStyle(0xe6eef5, 0.2 * fade);
+            g.fillStyle(0xffffff, 0.2 * fade);
             g.fillCircle(f.x + Math.cos(a) * r * 0.45, f.y + Math.sin(a) * r * 0.3 - 4, r * 0.5);
           }
           break;

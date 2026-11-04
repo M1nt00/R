@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { Px, outline, registerSheet } from './pixel';
+import { Px, outline, registerActor } from './pixel';
 import { C, E0, E1, E2 } from './palette';
 import type { AnimDef } from './heroSprites';
 
@@ -9,11 +9,11 @@ import type { AnimDef } from './heroSprites';
  * 프레임: 걷기 4 · 준비 2 · 공격 2 · 피격 1
  */
 export const ENEMY_ANIMS: Record<string, AnimDef> = {
-  walk: { start: 0, count: 4, fps: 8, loop: true },
-  idle: { start: 0, count: 4, fps: 4, loop: true },
-  windup: { start: 4, count: 2, fps: 10, loop: true },
-  attack: { start: 6, count: 2, fps: 12, loop: false },
-  hurt: { start: 8, count: 1, fps: 10, loop: false },
+  walk: { start: 0, count: 4, durs: [0.12, 0.1, 0.12, 0.1], loop: true },
+  idle: { start: 0, count: 4, durs: [0.28, 0.2, 0.28, 0.2], loop: true },
+  windup: { start: 4, count: 2, durs: [0.09, 0.07], loop: true },
+  attack: { start: 6, count: 2, durs: [0.05, 0.2], loop: false },
+  hurt: { start: 8, count: 1, durs: [0.1], loop: false },
 };
 
 type Frame = 'walk' | 'windup' | 'attack' | 'hurt';
@@ -237,22 +237,21 @@ function buildWisp(scene: Phaser.Scene) {
     b.set(7, 10, C.ink);
     b.set(9, 10, C.ink);
     b.rect(7, 12, 3, 1, C.ink);
-    outline(b, e, C.out);
+    outline(b, e);
     bodies.push(b);
     elems.push(e);
   }
-  registerSheet(scene, 'wisp_body', bodies);
-  registerSheet(scene, 'wisp_elem', elems);
+  registerActor(scene, 'wisp', bodies, elems);
 }
 
 // ───────── 보스: 잿불 골렘 (64×64, 발밑 y=58) ─────────
 export const BOSS_ANIMS: Record<string, AnimDef> = {
-  idle: { start: 0, count: 4, fps: 4, loop: true },
-  walk: { start: 4, count: 4, fps: 6, loop: true },
-  windup: { start: 8, count: 2, fps: 8, loop: true },
-  slam: { start: 10, count: 2, fps: 10, loop: false },
-  hurt: { start: 12, count: 1, fps: 8, loop: false },
-  stagger: { start: 13, count: 2, fps: 4, loop: true },
+  idle: { start: 0, count: 4, durs: [0.3, 0.2, 0.3, 0.2], loop: true },
+  walk: { start: 4, count: 4, durs: [0.2, 0.14, 0.2, 0.14], loop: true },
+  windup: { start: 8, count: 2, durs: [0.14, 0.1], loop: true },
+  slam: { start: 10, count: 2, durs: [0.05, 0.4], loop: false },
+  hurt: { start: 12, count: 1, durs: [0.12], loop: false },
+  stagger: { start: 13, count: 2, durs: [0.3, 0.25], loop: true },
 };
 
 type BossFrame = 'idle' | 'walk' | 'windup' | 'slam' | 'hurt' | 'stagger';
@@ -363,12 +362,11 @@ function buildGolem(scene: Phaser.Scene) {
     const b = new Px(64, 64);
     const e = new Px(64, 64);
     drawGolem(b, e, f, i);
-    outline(b, e, C.out);
+    outline(b, e);
     bodies.push(b);
     elems.push(e);
   }
-  registerSheet(scene, 'golem_body', bodies);
-  registerSheet(scene, 'golem_elem', elems);
+  registerActor(scene, 'golem', bodies, elems, ['fire']);
 }
 
 export function buildEnemySprites(scene: Phaser.Scene): void {
@@ -379,12 +377,11 @@ export function buildEnemySprites(scene: Phaser.Scene): void {
       const b = new Px(32, 32);
       const e = new Px(32, 32);
       draw(b, e, f, i);
-      outline(b, e, C.out);
+      outline(b, e);
       bodies.push(b);
       elems.push(e);
     }
-    registerSheet(scene, `${kind}_body`, bodies);
-    registerSheet(scene, `${kind}_elem`, elems);
+    registerActor(scene, kind, bodies, elems);
   }
   buildWisp(scene);
   buildGolem(scene);

@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
-import { Px, outline, registerSheet, registerCanvas } from './pixel';
-import { C, E0, E1, E2 } from './palette';
+import { Px, outline, registerSheet, registerCanvas, registerActor, bake } from './pixel';
+import { C, E0, E1, E2, ELEMENT_RAMP, type LookName } from './palette';
 
 /** 아이콘 시트 인덱스 (12×12, UI·HUD·문 위 보상 표시) */
 export const ICON = {
@@ -30,10 +30,13 @@ export const ICON = {
 } as const;
 export type IconName = keyof typeof ICON;
 
-function sheet(scene: Phaser.Scene, key: string, frames: Px[], elems?: Px[]) {
-  frames.forEach((b, i) => outline(b, elems ? elems[i] : null, C.out));
+function sheet(scene: Phaser.Scene, key: string, frames: Px[], elems?: Px[], looks: LookName[] = []) {
+  frames.forEach((b, i) => outline(b, elems ? elems[i] : null));
   registerSheet(scene, `${key}`, frames);
-  if (elems) registerSheet(scene, `${key}_elem`, elems);
+  if (elems) {
+    registerSheet(scene, `${key}_elem`, elems.map((e) => bake(e, ELEMENT_RAMP.neutral)));
+    for (const l of looks) registerSheet(scene, `${key}_elem_${l}`, elems.map((e) => bake(e, ELEMENT_RAMP[l])));
+  }
 }
 
 function icons(scene: Phaser.Scene) {
@@ -123,13 +126,13 @@ function icons(scene: Phaser.Scene) {
   });
   // 원소 정수 (결정)
   mk((p) => {
-    p.line(6, 0, 2, 6, 0xd9b8ff);
-    p.line(6, 0, 10, 6, 0xd9b8ff);
-    p.line(2, 6, 6, 11, 0x9a6fd6);
-    p.line(10, 6, 6, 11, 0x9a6fd6);
+    p.line(6, 0, 2, 6, C.essenceLight);
+    p.line(6, 0, 10, 6, C.essenceLight);
+    p.line(2, 6, 6, 11, 0x8b9bb4);
+    p.line(10, 6, 6, 11, 0x8b9bb4);
     for (let y = 1; y < 11; y++) {
       const half = y <= 6 ? Math.round((y / 6) * 4) : Math.round(((11 - y) / 5) * 4);
-      p.hline(6 - half, 6 + half, y, y < 6 ? 0xc59cff : 0x9a6fd6);
+      p.hline(6 - half, 6 + half, y, y < 6 ? C.essenceLight : C.essence);
     }
     p.vline(5, 2, 6, C.white);
   });
@@ -137,7 +140,7 @@ function icons(scene: Phaser.Scene) {
   mk((p) => {
     p.rect(5, 1, 2, 3, C.stone4);
     p.disc(6, 7, 4, C.blood);
-    p.hline(3, 9, 5, 0xff98a2);
+    p.hline(3, 9, 5, 0xe8b796);
     p.set(4, 6, C.white);
   });
   // 유물 아이콘 8종
@@ -183,11 +186,11 @@ function icons(scene: Phaser.Scene) {
     p.hline(4, 8, 9, C.water2);
   });
   mk((p) => {
-    p.line(6, 0, 9, 6, 0x9a6fd6);
-    p.line(9, 6, 5, 11, 0x5b3c8a);
-    p.line(5, 11, 3, 5, 0x5b3c8a);
-    p.line(3, 5, 6, 0, 0x9a6fd6);
-    p.vline(6, 2, 8, 0xd9b8ff);
+    p.line(6, 0, 9, 6, 0x8b9bb4);
+    p.line(9, 6, 5, 11, 0x68386c);
+    p.line(5, 11, 3, 5, 0x68386c);
+    p.line(3, 5, 6, 0, 0x8b9bb4);
+    p.vline(6, 2, 8, 0xc0cbdc);
   });
   // 공통 (별), 중첩 (세 점), 하트
   mk((p) => {
@@ -229,19 +232,14 @@ function projectiles(scene: Phaser.Scene) {
 }
 
 function canvasTextures(scene: Phaser.Scene) {
-  // 그림자
-  registerCanvas(scene, 'shadow', 16, 6, (ctx) => {
-    ctx.fillStyle = 'rgba(0,0,0,0.38)';
-    ctx.beginPath();
-    ctx.ellipse(8, 3, 7, 2.6, 0, 0, Math.PI * 2);
-    ctx.fill();
-  });
-  registerCanvas(scene, 'shadow_big', 48, 14, (ctx) => {
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath();
-    ctx.ellipse(24, 7, 22, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-  });
+  // 그림자: 반투명 픽셀 타원 (Image 알파로 투명도 조절)
+  const shadowPx = (w: number, h: number) => {
+    const p = new Px(w, h);
+    p.ellipse((w - 1) / 2, (h - 1) / 2, w / 2 - 0.5, h / 2 - 0.5, C.out);
+    return p;
+  };
+  registerSheet(scene, 'shadow', [shadowPx(14, 5)]);
+  registerSheet(scene, 'shadow_big', [shadowPx(44, 12)]);
   // 조명 (계단식 그라데이션 → 픽셀아트 느낌)
   registerCanvas(scene, 'light', 64, 64, (ctx) => {
     const steps = 7;
@@ -254,14 +252,13 @@ function canvasTextures(scene: Phaser.Scene) {
       ctx.fill();
     }
   });
-  registerCanvas(scene, 'glow', 32, 32, (ctx) => {
-    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-    g.addColorStop(0, 'rgba(255,255,255,0.9)');
-    g.addColorStop(0.35, 'rgba(255,255,255,0.35)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 32, 32);
-  });
+  // 광채: 부드러운 원 대신 계단식 픽셀 원 (ADD로 겹쳐 빛나게)
+  const glow = new Px(32, 32);
+  glow.disc(15.5, 15.5, 15, 0x404040);
+  glow.disc(15.5, 15.5, 11, 0x808080);
+  glow.disc(15.5, 15.5, 7, 0xc0c0c0);
+  glow.disc(15.5, 15.5, 3.5, 0xffffff);
+  registerSheet(scene, 'glow', [glow]);
   registerCanvas(scene, 'scorch', 32, 32, (ctx) => {
     for (let i = 0; i < 60; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -270,14 +267,22 @@ function canvasTextures(scene: Phaser.Scene) {
       ctx.fillRect(Math.round(16 + Math.cos(a) * r), Math.round(16 + Math.sin(a) * r * 0.7), 2, 2);
     }
   });
+  // 비네트: 그라데이션 대신 4단계 + 4×4 순서 디더링 (픽셀아트용)
+  const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   registerCanvas(scene, 'vignette', 480, 270, (ctx) => {
-    const g = ctx.createRadialGradient(240, 135, 120, 240, 135, 300);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(1, 'rgba(0,0,0,0.55)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 480, 270);
-  });
-}
+    for (let y = 0; y < 270; y++) {
+      for (let x = 0; x < 480; x++) {
+        const dx = (x - 240) / 240;
+        const dy = (y - 135) / 150;
+        const v = Math.max(0, Math.hypot(dx, dy) - 0.62) / 0.6;
+        const lv = Math.min(4, v * 4 + bayer[(y % 4) * 4 + (x % 4)] / 16);
+        const band = Math.floor(lv);
+        if (band <= 0) continue;
+        ctx.fillStyle = `rgba(24,20,37,${(band * 0.14).toFixed(2)})`;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  });}
 
 function props(scene: Phaser.Scene) {
   // 문 (위쪽 벽, 32×32): 0 닫힘, 1 열림
@@ -352,7 +357,7 @@ function props(scene: Phaser.Scene) {
     altarE.hline(16 - h, 16 + h, y, y < 8 ? E0 : E1);
   }
   altarE.vline(15, 4, 9, E0);
-  sheet(scene, 'altar', [altarB], [altarE]);
+  sheet(scene, 'altar', [altarB], [altarE], ['arcane']);
 
   // 포탈 (4프레임 소용돌이)
   const portalB: Px[] = [];
@@ -377,7 +382,7 @@ function props(scene: Phaser.Scene) {
     portalB.push(b);
     portalE.push(e);
   }
-  sheet(scene, 'portal', portalB, portalE);
+  sheet(scene, 'portal', portalB, portalE, ['fire', 'water', 'wind', 'lightning']);
 
   // 원소 기둥 (16×32, 꼭대기 구슬이 원소색)
   const pilB = new Px(16, 32);
@@ -389,7 +394,7 @@ function props(scene: Phaser.Scene) {
   pilB.rect(3, 8, 10, 3, C.stone3);
   pilE.disc(8, 5, 3.5, (dx, dy) => (dx + dy < -1 ? E0 : dx + dy > 2 ? E2 : E1));
   for (let y = 13; y < 26; y += 4) pilE.set(8, y, E1);
-  sheet(scene, 'pillar_el', [pilB], [pilE]);
+  sheet(scene, 'pillar_el', [pilB], [pilE], ['fire', 'water', 'wind', 'lightning']);
 
   // 허수아비 (훈련용): 0 기본, 1 맞음
   const dummy = (hit: boolean) => {
@@ -412,9 +417,8 @@ function props(scene: Phaser.Scene) {
     e.disc(16 + lean, 17, 2, E0);
     return e;
   });
-  dummyB.forEach((b, i) => outline(b, dummyE[i], C.out));
-  registerSheet(scene, 'dummy_body', dummyB);
-  registerSheet(scene, 'dummy_elem', dummyE);
+  dummyB.forEach((b, i) => outline(b, dummyE[i]));
+  registerActor(scene, 'dummy', dummyB, dummyE);
 
   // 회복의 샘
   const fountB: Px[] = [];
@@ -457,7 +461,7 @@ function props(scene: Phaser.Scene) {
     const p = new Px(8, 10);
     for (let y = 0; y < 10; y++) {
       const h = y <= 4 ? Math.round((y / 4) * 3) : Math.round(((9 - y) / 5) * 3);
-      p.hline(4 - h, 4 + h - 1, y, y < 5 ? 0xc59cff : 0x8a5cc8);
+      p.hline(4 - h, 4 + h - 1, y, y < 5 ? C.essenceLight : C.essence);
     }
     p.vline(3, 1 + (i % 2), 4 + (i % 2), C.white);
     ess.push(p);

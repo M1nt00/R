@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DEPTH, VIEW_W, VIEW_H } from '../config';
+import { DEPTH, WORLD_W, WORLD_H } from '../config';
 
 interface Flash {
   x: number;
@@ -23,7 +23,7 @@ export class Lighting {
 
   constructor(scene: Phaser.Scene, ambient: number) {
     this.ambient = ambient;
-    this.rt = scene.add.renderTexture(0, 0, VIEW_W, VIEW_H).setOrigin(0).setDepth(DEPTH.light);
+    this.rt = scene.add.renderTexture(0, 0, WORLD_W, WORLD_H).setOrigin(0).setDepth(DEPTH.light);
     this.rt.setBlendMode(Phaser.BlendModes.MULTIPLY);
     this.stamp = scene.make.image({ key: 'light', add: false }).setBlendMode(Phaser.BlendModes.ADD);
   }

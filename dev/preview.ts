@@ -19,8 +19,8 @@ class Preview extends Phaser.Scene {
     let y = 8;
     for (const [key, frames] of SPRITE_PIXELS) {
       if (only && !key.startsWith(only)) continue;
-      if (key.endsWith('_elem')) continue;
-      const elemKey = key.replace(/_body$/, '_elem');
+      if (key.includes('_elem')) continue;
+      const elemKey = key.replace(/_body$/, '_elem_fire');
       const hasElem = key.endsWith('_body') && SPRITE_PIXELS.has(elemKey);
       this.add.text(4, y, key, { fontSize: '12px', color: '#fff' });
       y += 14;
@@ -30,11 +30,11 @@ class Preview extends Phaser.Scene {
         const x = 4 + (i % perRow) * (fw + 4);
         const yy = y + Math.floor(i / perRow) * (frames[0].h * scale + 4);
         this.add.image(x, yy, key, String(i)).setOrigin(0).setScale(scale);
-        if (hasElem) this.add.image(x, yy, elemKey, String(i)).setOrigin(0).setScale(scale).setTint(0xff6a3d);
+        if (hasElem) this.add.image(x, yy, elemKey, String(i)).setOrigin(0).setScale(scale);
       });
       y += Math.ceil(frames.length / perRow) * (frames[0].h * scale + 4) + 8;
     }
   }
 }
 
-new Phaser.Game({ type: Phaser.AUTO, width: 1240, height: 2400, backgroundColor: '#3a3448', pixelArt: true, scene: [Preview] });
+new Phaser.Game({ type: Phaser.AUTO, width: 1240, height: 2400, backgroundColor: '#262b44', pixelArt: true, scene: [Preview] });

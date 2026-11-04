@@ -305,13 +305,13 @@ export class Terrain {
         const temp = this.base[i] !== 'puddle';
         if (temp) this.drawTempWater(g, i, c, r, time);
         if (fx === 'ice') {
-          g.fillStyle(0xc8f4ff, 0.92);
+          g.fillStyle(0xffffff, 0.92);
           g.fillRect(x, y, TILE, TILE);
           g.fillStyle(0xffffff, 0.9);
           const h = hash2(c, r, 2);
           g.fillRect(x + (h % 9) + 2, y + ((h >> 2) % 9) + 3, 4, 1);
           g.fillRect(x + (h % 9) + 3, y + ((h >> 2) % 9) + 2, 1, 1);
-          g.fillStyle(0x8fd4f0, 0.8);
+          g.fillStyle(0xc0cbdc, 0.8);
           g.fillRect(x, y + 15, TILE, 1);
         } else if (!temp) {
           // 잔물결
@@ -335,9 +335,9 @@ export class Terrain {
       } else if (kind === 'grass') {
         this.drawGrass(g, i, c, r, time, fx === 'burning');
       } else if (kind === 'ash') {
-        g.fillStyle(0x221c26, 0.85);
+        g.fillStyle(0x181425, 0.85);
         g.fillRect(x + 1, y + 1, TILE - 2, TILE - 2);
-        g.fillStyle(0x4d4652);
+        g.fillStyle(0x3a4466);
         const h = hash2(c, r, 5);
         g.fillRect(x + (h % 12) + 1, y + ((h >> 3) % 12) + 1, 2, 1);
         if (this.ashT[i] > ASH_REGROW - 2) {
@@ -393,7 +393,7 @@ export class Terrain {
   private drawGrass(g: Phaser.GameObjects.Graphics, i: number, c: number, r: number, time: number, burning: boolean) {
     const x = c * TILE;
     const y = r * TILE;
-    g.fillStyle(burning ? 0x3a1810 : C.grass2, 0.9);
+    g.fillStyle(burning ? 0x181425 : C.grass2, 0.9);
     g.fillRect(x, y + 1, TILE, TILE - 1);
     for (let k = 0; k < 6; k++) {
       const h = hash2(i, k, 4);
