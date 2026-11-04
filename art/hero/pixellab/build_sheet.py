@@ -1,5 +1,9 @@
 """PixelLab 원본 프레임 → 게임용 hero_body.png / hero_elem.png
 
+※ 더 이상 쓰지 않음: 지금 시트는 Aseprite에서 다시 그린 동작을 섞어 8열로 만든다
+  (C:/Users/reojh/aseprite-work/hero/build_sheet.lua). 이 스크립트는 6열 시트를 만들어 게임과 맞지 않으므로
+  실수로 덮어쓰지 않게 --force 없이는 실행되지 않는다. 이전 결과는 art/hero/backup/ 에 있다.
+
 사용법 (저장소 루트에서):
     python3 art/hero/pixellab/build_sheet.py
 
@@ -180,6 +184,8 @@ def split(img: Image.Image) -> tuple[Image.Image, Image.Image]:
 
 
 def main() -> None:
+    if '--force' not in sys.argv:
+        sys.exit('지금 시트는 Aseprite 파이프라인(8열)으로 만들어요. 6열 PixelLab 시트로 덮어쓰려면 --force')
     state = find_state()
     rows = len(DIRS) * len(ORDER)
     body_sheet = Image.new('RGBA', (CELL * COLS, CELL * rows), (0, 0, 0, 0))

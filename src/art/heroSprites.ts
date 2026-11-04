@@ -70,35 +70,45 @@ const P = (o: Partial<Pose> & { hand: [number, number]; ang: number }): Pose => 
 export type AnimName = 'idle' | 'run' | 'roll' | 'attack' | 'attack2' | 'cast' | 'hurt' | 'death';
 export const ORDER: AnimName[] = ['idle', 'run', 'roll', 'attack', 'attack2', 'cast', 'hurt', 'death'];
 export const DURS: Record<AnimName, number[]> = {
-  idle: [0.32, 0.16, 0.32, 0.16],
-  run: [0.07, 0.07, 0.07, 0.07, 0.07, 0.07],
-  // 0: 예비동작(움츠림) → 1~4: 구르기
-  roll: [0.04, 0.06, 0.06, 0.06, 0.08],
-  // 예비동작 70ms → 스미어 40ms → 타격 정지 110ms → 회복 80ms
-  attack: [0.07, 0.04, 0.11, 0.08],
-  attack2: [0.07, 0.04, 0.11, 0.08],
+  // 대기 8프레임 숨쉬기 (한 바퀴 1.2초): 쉼 → 들숨(망토 자락은 한 박자 늦게) → 날숨 → 눈 깜빡임
+  idle: [0.22, 0.16, 0.16, 0.22, 0.16, 0.18, 0.09, 0.13],
+  // 디딤 → 내려앉음 → 밀어내기 → 공중 → 반대발 디딤 … (한 바퀴 0.44초)
+  run: [0.055, 0.055, 0.055, 0.055, 0.055, 0.055, 0.055, 0.055],
+  // 구르기 8프레임 (무적 시간 0.3초와 같음): 웅크림 → 몸 던지기 → 몸을 말아 한 바퀴 4프레임 → 착지 웅크림 → 일어남
+  roll: [0.03, 0.035, 0.04, 0.04, 0.04, 0.035, 0.035, 0.045],
+  // 내려베기 12프레임: 예비동작 25+25+20ms(검을 어깨 → 머리 옆으로) → 스미어 30×3ms → 타격 70ms → 여운 40ms
+  // → 회복 40+40+45ms(검을 돌리지 않고 허리 쪽으로 당김) → 기본 자세 45ms (한 바퀴 0.44초, 올려베기와 같은 박자)
+  attack: [0.025, 0.025, 0.02, 0.03, 0.03, 0.03, 0.07, 0.04, 0.04, 0.04, 0.045, 0.045],
+  // 올려베기 12프레임: 예비동작 25+25+20ms(검을 왼쪽 아래로 내려 웅크림) → 스미어 30×3ms → 타격 70ms → 여운 40ms
+  // → 회복 40+40+45ms(세운 검을 앞으로 숙이며 허리로) → 기본 자세 45ms (한 바퀴 0.44초)
+  attack2: [0.025, 0.025, 0.02, 0.03, 0.03, 0.03, 0.07, 0.04, 0.04, 0.04, 0.045, 0.045],
   cast: [0.09, 0.05, 0.14, 0.08],
   hurt: [0.08, 0.12],
   death: [0.15, 0.2, 0.6],
 };
 const LOOP: Partial<Record<AnimName, boolean>> = { idle: true, run: true };
 
-export const HERO_FRAMES_PER_DIR = ORDER.reduce((n, a) => n + DURS[a].length, 0);
+/** 방향마다 프레임 수가 다른 동작 (옆모습 달리기는 PixelLab 원본 6프레임: 한 바퀴 0.44초로 정면과 같은 박자) */
+const DIR_DURS: Partial<Record<string, number[]>> = {
+  run_side: [0.073, 0.073, 0.074, 0.073, 0.073, 0.074],
+};
+export const dursOf = (a: AnimName, dir: Dir): number[] => DIR_DURS[`${a}_${dir}`] ?? DURS[a];
 
 export const HERO_ANIMS: Record<string, AnimDef> = (() => {
   const out: Record<string, AnimDef> = {};
-  DIRS.forEach((dir, di) => {
-    let o = di * HERO_FRAMES_PER_DIR;
+  let o = 0;
+  for (const dir of DIRS) {
     for (const a of ORDER) {
-      out[`${a}_${dir}`] = { start: o, count: DURS[a].length, durs: DURS[a], loop: LOOP[a] === true };
-      o += DURS[a].length;
+      const durs = dursOf(a, dir);
+      out[`${a}_${dir}`] = { start: o, count: durs.length, durs, loop: LOOP[a] === true };
+      o += durs.length;
     }
-  });
+  }
   return out;
 })();
 
-/** 시작 후 이 시간이 지나면 칼이 닿는다 (예비동작 길이) */
-export const SWING_HIT_DELAY = DURS.attack[0];
+/** 시작 후 이 시간이 지나면 칼이 닿는다 (예비동작 길이 70ms = 내려베기·올려베기 앞 세 프레임) */
+export const SWING_HIT_DELAY = DURS.attack[0] + DURS.attack[1] + DURS.attack[2];
 export const CAST_HIT_DELAY = DURS.cast[0];
 
 export const HERO_ANCHORS: Anchor[] = [];
@@ -107,20 +117,28 @@ export const HERO_ANCHORS: Anchor[] = [];
 export const HERO_SOURCE = { custom: false };
 
 /** 시트 배치: 행 = 방향 × 동작 (아래·위·옆 순, 동작은 ORDER 순), 열 = 프레임 번호 */
-export const HERO_SHEET_COLS = 6;
+export const HERO_SHEET_COLS = 12;
 export function heroCell(dirIdx: number, animIdx: number, frame: number): { col: number; row: number } {
   return { col: frame, row: dirIdx * 8 + animIdx };
 }
 
 const runLegs = (k: number) => {
-  const s = Math.sin((k / 6) * Math.PI * 2);
+  const s = Math.sin((k / DURS.run.length) * Math.PI * 2);
   const leg = Math.round(s * 2);
   return { legA: leg, legB: -leg, liftA: s > 0.4 ? 1 : 0, liftB: s < -0.4 ? 1 : 0, bob: Math.abs(s) > 0.7 ? 1 : 0 };
 };
 
 const TAU = Math.PI * 2;
 
+/** 코드 생성 그림은 공격 4자세(예비·스미어·타격·회복)만 있음 → 늘어난 프레임은 가까운 자세를 이어서 보여 줌 */
+const LEGACY_ATTACK: Partial<Record<AnimName, number[]>> = {
+  attack: [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 3, 3],
+  attack2: [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 3, 3],
+};
+
 function poseFor(dir: Dir, a: AnimName, i: number): Pose {
+  const legacy = LEGACY_ATTACK[a];
+  if (legacy && DURS[a].length === legacy.length) i = legacy[i];
   if (a === 'roll') return P({ hand: [19, 21], ang: 0.9, bob: 2, lean: dir === 'side' ? 1 : 0, noSword: i > 0 });
   if (dir === 'side') {
     switch (a) {
@@ -724,7 +742,7 @@ export function buildHeroSprites(scene: Phaser.Scene): void {
   HERO_ANCHORS.length = 0;
   for (const dir of DIRS) {
     for (const a of ORDER) {
-      for (let i = 0; i < DURS[a].length; i++) {
+      for (let i = 0; i < dursOf(a, dir).length; i++) {
         const b = new Px(32, 32);
         const e = new Px(32, 32);
         const pose = poseFor(dir, a, i);

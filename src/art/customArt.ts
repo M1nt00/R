@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import { Px, NONE, registerSheet } from './pixel';
-import { DIRS, ORDER, DURS, HERO_SOURCE, HERO_SHEET_COLS, heroCell } from './heroSprites';
+import { DIRS, ORDER, dursOf, HERO_SOURCE, HERO_SHEET_COLS, heroCell } from './heroSprites';
 
 /**
  * 직접 그린 주인공 스프라이트 교체.
@@ -41,9 +41,9 @@ export function installCustomHero(scene: Phaser.Scene): boolean {
     const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
     const cell = Math.max(32, Math.round(img.width / HERO_SHEET_COLS));
     const frames: Px[] = [];
-    DIRS.forEach((_, di) => {
+    DIRS.forEach((dir, di) => {
       ORDER.forEach((anim, ai) => {
-        for (let f = 0; f < DURS[anim].length; f++) {
+        for (let f = 0; f < dursOf(anim, dir).length; f++) {
           const { col, row } = heroCell(di, ai, f);
           const p = new Px(cell, cell);
           for (let y = 0; y < cell; y++) {

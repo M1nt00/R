@@ -4,3 +4,14 @@ dist/
 .DS_Store
 .play-build/
 shots/
+# API 토큰·내 컴퓨터 경로가 들어 있는 MCP 설정 (PixelLab 토큰 등) — 올리지 않음
+.mcp.json
+.env
+.env.*
+.claude/settings.local.json
+# 내 컴퓨터용 백업 (예전 play.html·시트 사본, 커밋 기록이 대신함)과 루트에 남은 옛 시트 사본
+art/hero/backup/
+/hero_body.png
+/hero_elem.png
+# 남이 만든 참고 그림 (출처가 따로 있어 저장소에 올리지 않음)
+art/hero/wip/reference/
