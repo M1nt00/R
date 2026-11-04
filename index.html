@@ -8,10 +8,29 @@
       html, body { margin: 0; height: 100%; background: #0d0b12; overflow: hidden; }
       #game { width: 100vw; height: 100vh; }
       canvas { image-rendering: pixelated; }
+      #notice {
+        display: none; position: fixed; inset: 0; align-items: center; justify-content: center;
+        color: #e8e4f8; font: 16px/1.7 "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif; text-align: center;
+      }
+      #notice b { color: #ffe0a0; }
+      #notice code { background: #221e2b; padding: 2px 6px; border-radius: 4px; }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <div id="notice">
+      <div>
+        게임이 시작되지 않았어요.<br />
+        파일을 더블클릭해서 열었다면 <b>index.html</b> 대신 <b>play.html</b>을 열어주세요.<br />
+        개발용으로 켜려면 터미널에서 <code>npm install</code> 후 <code>npm run dev</code>
+      </div>
+    </div>
+    <script>
+      // 2초 안에 캔버스가 안 생기면 안내 문구 표시 (file:// 로 개발용 index.html을 연 경우 등)
+      setTimeout(function () {
+        if (!document.querySelector('#game canvas')) document.getElementById('notice').style.display = 'flex';
+      }, 2000);
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

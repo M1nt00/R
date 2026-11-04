@@ -7,6 +7,17 @@
 
 ## 실행
 
+### 그냥 해보기 (설치 필요 없음)
+
+**`play.html`을 더블클릭**해서 브라우저(크롬·엣지 권장)로 열면 바로 시작돼요.
+코드가 전부 한 파일에 들어 있어서 인터넷이나 설치 없이 동작해요.
+
+> `index.html`은 개발 서버용이라 더블클릭으로는 안 켜져요 (브라우저 보안 정책).
+
+### 개발 모드
+
+[Node.js](https://nodejs.org) 설치 후:
+
 ```bash
 npm install
 ```
@@ -15,7 +26,12 @@ npm install
 npm run dev
 ```
 
-브라우저에서 `http://localhost:5173` 열기. 배포용 빌드는 `npm run build` (결과물 `dist/`).
+브라우저에서 `http://localhost:5173` 열기. 코드를 고치면 바로 반영돼요.
+
+### 빌드
+
+- `npm run build:play` → `play.html` 다시 만들기 (코드 고친 뒤 실행)
+- `npm run build` → 웹 배포용 `dist/`
 
 ## 조작
 

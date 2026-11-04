@@ -7,13 +7,15 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:play": "tsc --noEmit && vite build --mode play && node -e \"require('fs').copyFileSync('.play-build/index.html','play.html')\""
   },
   "dependencies": {
     "phaser": "3.90.0"
   },
   "devDependencies": {
     "typescript": "5.9.3",
-    "vite": "6.4.5"
+    "vite": "6.4.5",
+    "vite-plugin-singlefile": "^2.3.4"
   }
 }
