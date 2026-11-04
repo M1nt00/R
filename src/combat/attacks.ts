@@ -27,8 +27,10 @@ export interface AttackTiming {
   cooldown: number;
   /** 공격 중 이동 감속 시간 */
   lock: number;
-  anim: 'attack' | 'cast';
+  anim: SwingAnim;
 }
+
+export type SwingAnim = 'attack' | 'attack2' | 'cast';
 
 export const SKILL_COOLDOWN: Record<Element, number> = { fire: 4, water: 6, wind: 5, lightning: 6 };
 export const SKILL_NAME: Record<Element, string> = { fire: '화염 돌진', water: '물웅덩이', wind: '회오리', lightning: '순간이동' };
@@ -60,7 +62,7 @@ export function basicAttack(s: RoomScene, p: Player, pay: Payload): AttackTiming
       const heavy = step === 2;
       const range = heavy ? 30 : 26;
       const half = heavy ? 1.4 : 1.1;
-      s.vfx.slash(p.x, p.y - 6, a + (step === 1 ? 0.15 : -0.15), range, half, color, heavy);
+      s.vfx.slash(p.x, p.y - 8, a + (step === 1 ? 0.15 : -0.15), range, half, color, heavy, step === 1);
       p.lunge(heavy ? 90 : 60);
       for (const t of s.combat.inArc(p.x, p.y, range, a, half, 'enemy')) {
         s.combat.hit(t, hitWith(pay, heavy ? 7 : 4, { knockback: heavy ? 170 : 50, fromX: p.x, fromY: p.y, hitstop: 0.05 }));
@@ -70,7 +72,7 @@ export function basicAttack(s: RoomScene, p: Player, pay: Payload): AttackTiming
       playSfx('slash');
       p.comboStep = (step + 1) % 3;
       p.comboT = 0.6;
-      return { cooldown: heavy ? 0.42 : 0.17, lock: 0.12, anim: 'attack' };
+      return { cooldown: heavy ? 0.42 : 0.17, lock: 0.12, anim: step === 1 ? 'attack2' : 'attack' };
     }
     case 'water': {
       const sp = 300;
@@ -89,12 +91,13 @@ export function basicAttack(s: RoomScene, p: Player, pay: Payload): AttackTiming
       });
       s.vfx.spark(p.x + cos * 10, p.y - 8 + sin * 10, ELEMENT_LIGHT.water, 3, 40, 30);
       playSfx('shoot');
-      return { cooldown: 0.22, lock: 0.06, anim: 'attack' };
+      return { cooldown: 0.22, lock: 0.06, anim: p.nextSwing() };
     }
     case 'wind': {
       const range = 38;
       const half = 1.05;
-      s.vfx.slash(p.x, p.y - 6, a, range, half, color, true);
+      const sw = p.nextSwing();
+      s.vfx.slash(p.x, p.y - 8, a, range, half, color, true, sw === 'attack2');
       p.lunge(40);
       for (const t of s.combat.inArc(p.x, p.y, range, a, half, 'enemy')) {
         s.combat.hit(t, hitWith(pay, 3, { knockback: 130, fromX: p.x, fromY: p.y, hitstop: 0.045 }));
@@ -103,7 +106,7 @@ export function basicAttack(s: RoomScene, p: Player, pay: Payload): AttackTiming
         s.terrain.applyElement(p.x + Math.cos(a + k) * range * 0.6, p.y + Math.sin(a + k) * range * 0.6, 9, 'wind');
       }
       playSfx('whoosh');
-      return { cooldown: 0.36, lock: 0.14, anim: 'attack' };
+      return { cooldown: 0.36, lock: 0.14, anim: sw };
     }
     case 'lightning': {
       const { x: tx, y: ty } = clampAim(p, 130);
@@ -122,7 +125,7 @@ export function basicAttack(s: RoomScene, p: Player, pay: Payload): AttackTiming
   }
 }
 
-export function skillAttack(s: RoomScene, p: Player, pay: Payload): 'attack' | 'cast' {
+export function skillAttack(s: RoomScene, p: Player, pay: Payload): SwingAnim {
   const a = p.aimAngle;
   const cos = Math.cos(a);
   const sin = Math.sin(a);

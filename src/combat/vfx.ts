@@ -204,22 +204,29 @@ export class Vfx {
     });
   }
 
-  slash(x: number, y: number, angle: number, range: number, half: number, color: number, heavy = false): void {
+  /** 검 궤적: 휘두른 방향의 반대쪽 끝부터 사라지는 초승달 (reverse = 올려베기) */
+  slash(x: number, y: number, angle: number, range: number, half: number, color: number, heavy = false, reverse = false): void {
     const a0 = angle - half;
     const a1 = angle + half;
     this.animate(heavy ? 0.16 : 0.12, (g, t) => {
-      const r = range * (0.8 + 0.2 * t);
-      g.fillStyle(color, 0.85 * (1 - t));
+      const r = range * (0.85 + 0.15 * t);
+      const cut = half * 2 * t * 0.7;
+      const s0 = reverse ? a0 : a0 + cut;
+      const s1 = reverse ? a1 - cut : a1;
+      g.fillStyle(color, 0.7 * (1 - t));
       g.beginPath();
-      g.arc(x, y, r, a0 + half * 2 * t * 0.3, a1, false);
-      g.arc(x, y, r * (0.5 + 0.35 * t), a1, a0 + half * 2 * t * 0.3, true);
+      g.arc(x, y, r, s0, s1, false);
+      g.arc(x, y, r * ((heavy ? 0.72 : 0.8) + 0.14 * t), s1, s0, true);
       g.closePath();
       g.fillPath();
       g.lineStyle(1, 0xffffff, 0.95 * (1 - t));
       g.beginPath();
-      g.arc(x, y, r, a0 + half * 0.6, a1 - half * 0.1, false);
+      g.arc(x, y, r, s0 + (s1 - s0) * 0.2, s1 - (s1 - s0) * 0.05, false);
       g.strokePath();
     });
+    // 칼끝 불티
+    const tip = reverse ? a0 : a1;
+    this.spark(x + Math.cos(tip) * range, y + 8 + Math.sin(tip) * range, color, heavy ? 6 : 3, 60, 40);
     this.lighting?.flash(x + Math.cos(angle) * range * 0.5, y + Math.sin(angle) * range * 0.5, range * 1.6, color, 0.15);
   }
 

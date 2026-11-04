@@ -5,7 +5,7 @@ import { ELEMENTS, ELEMENT_NAME, type Element } from '../element/types';
 import { ELEMENT_COLOR, ELEMENT_LIGHT } from '../art/palette';
 import { RULES } from '../element/data';
 import type { HitInfo, HitResult } from '../combat/damage';
-import { basicAttack, skillAttack, SKILL_COOLDOWN, type Payload } from '../combat/attacks';
+import { basicAttack, skillAttack, SKILL_COOLDOWN, type Payload, type SwingAnim } from '../combat/attacks';
 import { HERO_ANIMS, type Dir } from '../art/heroSprites';
 import { playSfx } from '../audio/sfx';
 
@@ -62,7 +62,8 @@ export class Player extends Actor {
   hurtInvulnT = 0;
   private hurtAnimT = 0;
   private actionT = 0;
-  private action: 'attack' | 'cast' = 'attack';
+  private action: SwingAnim = 'attack';
+  private swingFlip = false;
   private dir: Dir = 'down';
   private stepT = 0;
   private deathT = 0;
@@ -233,7 +234,13 @@ export class Player extends Actor {
     this.pickAnim(moving);
   }
 
-  private startAction(anim: 'attack' | 'cast', dur: number) {
+  /** 내려베기 ↔ 올려베기 번갈아 */
+  nextSwing(): SwingAnim {
+    this.swingFlip = !this.swingFlip;
+    return this.swingFlip ? 'attack' : 'attack2';
+  }
+
+  private startAction(anim: SwingAnim, dur: number) {
     this.action = anim;
     this.actionT = dur;
     this.play(`${anim}_${this.dirFor(this.aimAngle)}`, true);
