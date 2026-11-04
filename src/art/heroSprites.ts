@@ -26,7 +26,18 @@ export interface Anchor {
   band: [number, number];
   /** 스프링을 몸 앞에 그릴지 (뒷모습일 때) */
   front: boolean;
+  /** 띠 스프링만 따로 앞/뒤 지정 (없으면 front와 같음) */
+  bandFront?: boolean;
 }
+
+/** 주인공 스타일: mage = 후드 원소술사, swordsman = 은발 검사 */
+export const HERO_STYLE: 'mage' | 'swordsman' = 'mage';
+
+/** 스타일별 스프링 모양 (hair 슬롯 = 은발 포니테일 또는 후드 끝자락) */
+export const HERO_SPRING =
+  HERO_STYLE === 'mage'
+    ? { count: 5, colors: [C.cloak1, C.cloak1, C.cloak2, C.cloak2], widths: [2, 2, 1, 1], outline: C.out, gravity: 420 }
+    : { count: 7, colors: [C.hairS0, C.hairS0, C.hairS1, C.hairS1, C.hairS2, C.hairS2], widths: [2, 2, 2, 1, 1, 1], outline: C.stone2, gravity: 520 };
 
 interface Pose {
   bob: number;
@@ -240,8 +251,18 @@ function sword(b: Px, e: Px, p: Pose) {
     if (t > 3 && t < LEN - 2) e.set(x - nx * 0.9, yy - ny * 0.9, E2);
   }
   if (p.glow) e.disc(hx + dx * LEN, y + dy * LEN, p.glow, E0);
-  b.rect(hx - 1, y - 1, 2, 2, C.leather1);
-  b.set(hx - 1, y - 1, C.leather0);
+  if (HERO_STYLE === 'mage') glove(b, e, hx - 1, y - 1);
+  else {
+    b.rect(hx - 1, y - 1, 2, 2, C.leather1);
+    b.set(hx - 1, y - 1, C.leather0);
+  }
+}
+
+/** 원소술사 장갑: 원소 레이어 2×2 + 손끝 피부 1픽셀 */
+function glove(b: Px, e: Px, x: number, y: number) {
+  e.rect(x, y, 2, 2, E1);
+  e.set(x, y, E0);
+  b.set(x + 1, y + 2, C.skin2);
 }
 
 /** 스미어: 휘두른 구간 전체를 검 궤적으로 채운다 (최근일수록 밝고 두껍게) */
@@ -494,6 +515,209 @@ function drawDeathFinal(b: Px, e: Px): Anchor {
   return { hair: [7, 22], band: [8, 21], front: false };
 }
 
+
+// ═══════════════════════════ 후드 원소술사 ═══════════════════════════
+// 빛은 왼쪽 위. 본체는 저채도(남색 망토·후드, 갈색 옷), 원소 레이어 = 망토 안감·장갑·눈·허리띠·검날
+
+/** 왼쪽 위가 밝고 오른쪽 아래가 어두운 3단 음영 */
+const lit = (dx: number, dy: number, hi: number, mid: number, lo: number, bias = 0) => {
+  const v = dx * 0.55 + dy * 0.8 + bias;
+  return v < -2.2 ? hi : v > 3.6 ? lo : mid;
+};
+
+/** 망토 반폭 (어깨 좁고 아래로 퍼지는 종 모양) */
+const cloakHalf = (y: number) => 5 + Math.floor((y - 13) * 0.5);
+
+function mageLegs(b: Px, p: Pose, y0: number, side = false) {
+  const leg = (x: number, lift: number, dark: boolean) => {
+    const bottom = 26 - lift - Math.max(0, y0 - 1);
+    b.rect(x, 23, 2, Math.max(1, bottom - 24), dark ? C.tunic2 : C.tunic1);
+    b.rect(x - (side ? 0 : dark ? 0 : 1), bottom - 1, 3, 2, C.tunic1);
+    b.set(x - (side ? 0 : dark ? 0 : 1), bottom - 1, C.tunic0);
+  };
+  if (side) {
+    leg(15 + p.legB, p.liftB, true);
+    leg(16 + p.legA, p.liftA, false);
+  } else {
+    leg(13, p.liftA, false);
+    leg(17, p.liftB, true);
+  }
+}
+
+/** 후드: 큰 반구 + 어깨로 흘러내리는 자락. 얼굴 구멍은 그늘, 눈만 원소색 */
+function mageHood(b: Px, e: Px, cx: number, cy: number, y0: number, face: 'front' | 'side' | 'none', hurt: boolean) {
+  const ccy = cy + y0;
+  b.ellipse(cx, ccy, 7.5, 6.2, (dx, dy) => lit(dx, dy, C.cloak0, C.cloak1, C.cloak2));
+  // 정수리 쪽 테두리 빛 (드문드문)
+  for (let k = -4; k <= 0; k++) b.set(cx + k - 0.5, ccy - 6 + Math.abs(k + 2) * 0.35, C.cloakRim);
+  // 어깨 자락
+  for (let y = 12; y <= 14; y++) {
+    const half = 7 + (y - 12);
+    for (let x = Math.ceil(cx - half); x <= Math.floor(cx + half); x++) b.set(x, y + y0, lit(x - cx, y - 12, C.cloak0, C.cloak1, C.cloak2, 0.5));
+  }
+  if (face === 'none') {
+    b.vline(Math.round(cx), ccy - 4, ccy + 5, C.cloak2);
+    return;
+  }
+  const fx = face === 'front' ? cx : cx + 3.5;
+  const frx = face === 'front' ? 4.6 : 2.6;
+  const fry = face === 'front' ? 3.3 : 3.0;
+  const fcy = ccy + 1.6;
+  // 얼굴 구멍 테두리: 위·왼쪽은 빛을 받고 아래·오른쪽은 그늘
+  b.ellipse(fx, fcy, frx + 1, fry + 1, (dx, dy) => (dy < 0 && dx < 1 ? C.cloak0 : C.cloak2));
+  b.ellipse(fx, fcy, frx, fry, (_dx, dy) => (dy < 0.5 ? C.out : C.cloak3));
+  if (face === 'front') {
+    if (hurt) {
+      e.set(Math.round(fx - 2.5), fcy + 1, E2);
+      e.set(Math.round(fx + 2.5), fcy + 1, E2);
+    } else {
+      e.set(Math.round(fx - 2.5), Math.round(fcy), E0);
+      e.set(Math.round(fx + 1.5), Math.round(fcy), E0);
+    }
+  } else e.set(Math.round(fx + 0.5), Math.round(fcy), hurt ? E2 : E0);
+}
+
+function drawMageFront(p: Pose, b: Px, e: Px): Anchor {
+  const y0 = p.bob;
+  if (!p.noSword && p.swordBehind) sword(b, e, p);
+  mageLegs(b, p, y0);
+  // 망토 (종 모양) + 앞트임
+  for (let y = 13; y <= 24; y++) {
+    const half = cloakHalf(y);
+    const left = 16 - half - 1;
+    const right = 15 + half + 1;
+    const open = y >= 14 ? 1 + Math.floor((y - 14) * 0.3) : -1;
+    for (let x = left; x <= right; x++) {
+      if (y === 24 && (x + 1) % 3 === 0) continue;
+      const t = (x - left) / (right - left);
+      let c: number = t < 0.2 ? C.cloak0 : t > 0.88 ? C.cloak2 : C.cloak1;
+      // 세로 주름: 어두운 골 + 왼쪽에 빛
+      if (y >= 16 && (x === left + 3 || x === right - 3)) c = C.cloak2;
+      if (y >= 16 && (x === left + 2 || x === right - 4)) c = C.cloak0;
+      if (y >= 23) c = c === C.cloak0 ? C.cloak1 : C.cloak2;
+      const inOpen = open >= 0 && x >= 15 - open && x <= 16 + open;
+      const edge = open >= 0 && (x === 14 - open || x === 17 + open);
+      if (edge) e.set(x, y + y0, y > 21 ? E2 : E1);
+      else if (inOpen) b.set(x, y + y0, x <= 15 - open + 1 ? C.tunic0 : y > 21 ? C.tunic2 : C.tunic1);
+      else b.set(x, y + y0, c);
+    }
+  }
+  // 밑단 안감이 살짝 보임
+  for (const x of [8, 9, 10, 21, 22, 23]) e.set(x, 24 + y0, E2);
+  // 허리띠 + 버클
+  e.hline(14, 17, 19 + y0, E0);
+  e.set(13, 19 + y0, E1);
+  e.set(18, 19 + y0, E1);
+  b.rect(15, 19 + y0, 2, 1, C.stone4);
+  // 브로치
+  b.set(15, 14 + y0, C.stone4);
+  b.set(16, 14 + y0, C.stone3);
+  // 왼손 (망토 틈으로)
+  if (!p.noSword) glove(b, e, 9, 19 + y0);
+  mageHood(b, e, 15.5, 8, y0, 'front', p.hurt);
+  if (!p.noSword) {
+    arm(b, 20, 15 + y0, p, C.cloak1, C.cloak2);
+    smear(e, p);
+    if (!p.swordBehind) sword(b, e, p);
+  }
+  return { hair: [16, 2 + y0], band: [13, 19 + y0], front: false, bandFront: true };
+}
+
+function drawMageSide(p: Pose, b: Px, e: Px): Anchor {
+  const y0 = p.bob;
+  const lx = p.lean;
+  mageLegs(b, p, y0, true);
+  // 망토: 몸 뒤로 넓게, 앞은 몸통 선까지
+  for (let y = 13; y <= 24; y++) {
+    const back = 14 - Math.round(2 + (y - 13) * 0.55) + lx;
+    const front = 17 + lx;
+    for (let x = back; x <= front; x++) {
+      if (y === 24 && (x + 1) % 3 === 0) continue;
+      const t = (x - back) / Math.max(1, front - back);
+      let c: number = t < 0.25 ? C.cloak0 : t > 0.9 ? C.cloak2 : C.cloak1;
+      if (y >= 16 && x === back + 3) c = C.cloak2;
+      if (y >= 23) c = c === C.cloak0 ? C.cloak1 : C.cloak2;
+      b.set(x, y + y0, c);
+    }
+    if (y >= 15 && y <= 23) e.set(front + 1, y + y0, y > 21 ? E2 : E1);
+  }
+  // 몸통 앞 (옷)
+  for (let y = 15; y <= 22; y++) for (let x = 19; x <= 20; x++) b.set(x + lx, y + y0, x === 19 ? C.tunic0 : C.tunic1);
+  e.hline(18 + lx, 20 + lx, 19 + y0, E0);
+  mageHood(b, e, 15 + lx, 8, y0, 'side', p.hurt);
+  if (!p.noSword) {
+    arm(b, 17 + lx, 15 + y0, p, C.cloak0, C.cloak1);
+    smear(e, p);
+    sword(b, e, p);
+  }
+  return { hair: [11 + lx, 3 + y0], band: [18 + lx, 19 + y0], front: false };
+}
+
+function drawMageBack(p: Pose, b: Px, e: Px): Anchor {
+  const y0 = p.bob;
+  if (!p.noSword && p.swordBehind) {
+    smear(e, p);
+    sword(b, e, p);
+  }
+  mageLegs(b, p, y0);
+  for (let y = 13; y <= 24; y++) {
+    const half = cloakHalf(y);
+    const left = 16 - half - 1;
+    const right = 15 + half + 1;
+    for (let x = left; x <= right; x++) {
+      if (y === 24 && (x + 1) % 3 === 0) continue;
+      const t = (x - left) / (right - left);
+      let c: number = t < 0.2 ? C.cloak0 : t > 0.88 ? C.cloak2 : C.cloak1;
+      if (y >= 15 && (x === 15 || x === left + 4 || x === right - 4)) c = C.cloak2;
+      if (y >= 15 && (x === 14 || x === left + 3)) c = C.cloak0;
+      if (y >= 23) c = c === C.cloak0 ? C.cloak1 : C.cloak2;
+      b.set(x, y + y0, c);
+    }
+  }
+  for (let x = 6; x <= 25; x++) if (x % 3 !== 2) e.set(x, 25 + y0 - (x > 8 && x < 23 ? 0 : 0), E2);
+  mageHood(b, e, 15.5, 8, y0, 'none', p.hurt);
+  if (!p.noSword && !p.swordBehind) {
+    arm(b, 20, 15 + y0, p, C.cloak1, C.cloak2);
+    smear(e, p);
+    sword(b, e, p);
+  }
+  return { hair: [16, 2 + y0], band: [16, 19 + y0], front: true, bandFront: false };
+}
+
+function drawMageRoll(i: number, b: Px, e: Px): Anchor {
+  const rot = ((i - 1) / 4) * Math.PI * 2;
+  const cx = 16;
+  const cy = 20;
+  b.disc(cx, cy, 6.5, (dx, dy) => {
+    let a = Math.atan2(dy, dx) - rot;
+    a = ((a % TAU) + TAU) % TAU;
+    const light = dx + dy < -3 ? 0 : dx + dy > 3 ? 2 : 1;
+    if (a / TAU < 0.3) return [C.cloak0, C.cloak1, C.cloak2][light];
+    return [C.cloak1, C.cloak2, C.cloak3][light];
+  });
+  for (let k = -5; k <= 5; k++) {
+    const a = rot + 1.6;
+    const x = Math.round(cx + Math.cos(a) * k);
+    const y = Math.round(cy + Math.sin(a) * k);
+    if (b.get(x, y) !== -1) e.set(x, y, Math.abs(k) > 3 ? E2 : E1);
+  }
+  const ea = rot + 0.4;
+  e.set(Math.round(cx + Math.cos(ea) * 3), Math.round(cy + Math.sin(ea) * 3), E0);
+  return { hair: [Math.round(cx + Math.cos(rot) * 5), Math.round(cy + Math.sin(rot) * 5)], band: [cx, cy], front: false };
+}
+
+function drawMageDeathFinal(b: Px, e: Px): Anchor {
+  b.ellipse(16, 23, 9, 3.5, (dx, dy) => lit(dx, dy, C.cloak0, C.cloak1, C.cloak2));
+  b.ellipse(9, 21, 4, 3, (dx, dy) => lit(dx, dy, C.cloak0, C.cloak1, C.cloak2));
+  b.set(8, 22, C.out);
+  b.set(10, 22, C.out);
+  e.hline(10, 22, 26, E2);
+  b.set(18, 28, C.stone3);
+  e.hline(19, 30, 28, E1);
+  e.hline(19, 28, 27, E0);
+  return { hair: [8, 18], band: [16, 22], front: false };
+}
+
 export function buildHeroSprites(scene: Phaser.Scene): void {
   const bodies: Px[] = [];
   const elems: Px[] = [];
@@ -505,12 +729,14 @@ export function buildHeroSprites(scene: Phaser.Scene): void {
         const e = new Px(32, 32);
         const pose = poseFor(dir, a, i);
         let anchor: Anchor;
-        if (a === 'roll' && i > 0) anchor = drawRoll(i, b, e);
-        else if (a === 'death' && i === 2) anchor = drawDeathFinal(b, e);
-        else if (a === 'death') anchor = drawFront(poseFor('down', 'death', i), b, e);
-        else if (dir === 'side') anchor = drawSide(pose, b, e);
-        else if (dir === 'down') anchor = drawFront(pose, b, e);
-        else anchor = drawBack(pose, b, e);
+        const mage = HERO_STYLE === 'mage';
+        const front = mage ? drawMageFront : drawFront;
+        if (a === 'roll' && i > 0) anchor = mage ? drawMageRoll(i, b, e) : drawRoll(i, b, e);
+        else if (a === 'death' && i === 2) anchor = mage ? drawMageDeathFinal(b, e) : drawDeathFinal(b, e);
+        else if (a === 'death') anchor = front(poseFor('down', 'death', i), b, e);
+        else if (dir === 'side') anchor = mage ? drawMageSide(pose, b, e) : drawSide(pose, b, e);
+        else if (dir === 'down') anchor = front(pose, b, e);
+        else anchor = mage ? drawMageBack(pose, b, e) : drawBack(pose, b, e);
         outline(b, e);
         bodies.push(b);
         elems.push(e);

@@ -20,7 +20,9 @@ class Preview extends Phaser.Scene {
     for (const [key, frames] of SPRITE_PIXELS) {
       if (only && !key.startsWith(only)) continue;
       if (key.includes('_elem')) continue;
-      const elemKey = key.replace(/_body$/, '_elem_fire');
+      const rawKey = key.replace(/_body$/, '_elem_raw');
+      const useRaw = SPRITE_PIXELS.has(rawKey);
+      const elemKey = useRaw ? rawKey : key.replace(/_body$/, '_elem_fire');
       const hasElem = key.endsWith('_body') && SPRITE_PIXELS.has(elemKey);
       this.add.text(4, y, key, { fontSize: '12px', color: '#fff' });
       y += 14;
@@ -30,7 +32,7 @@ class Preview extends Phaser.Scene {
         const x = 4 + (i % perRow) * (fw + 4);
         const yy = y + Math.floor(i / perRow) * (frames[0].h * scale + 4);
         this.add.image(x, yy, key, String(i)).setOrigin(0).setScale(scale);
-        if (hasElem) this.add.image(x, yy, elemKey, String(i)).setOrigin(0).setScale(scale);
+        if (hasElem) this.add.image(x, yy, elemKey, String(i)).setOrigin(0).setScale(scale).setTint(useRaw ? Number('0x' + (params.get('tint') ?? '0099db')) : 0xffffff);
       });
       y += Math.ceil(frames.length / perRow) * (frames[0].h * scale + 4) + 8;
     }

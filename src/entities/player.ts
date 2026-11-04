@@ -6,7 +6,7 @@ import { ELEMENT_COLOR, ELEMENT_LIGHT, C, E32, SELOUT, mixColor, scaleColor } fr
 import { RULES } from '../element/data';
 import type { HitInfo, HitResult } from '../combat/damage';
 import { basicAttack, skillAttack, SKILL_COOLDOWN, type Payload, type SwingAnim } from '../combat/attacks';
-import { HERO_ANIMS, HERO_ANCHORS, HERO_SOURCE, type Dir } from '../art/heroSprites';
+import { HERO_ANIMS, HERO_ANCHORS, HERO_SOURCE, HERO_SPRING, type Dir } from '../art/heroSprites';
 import { SpringChain } from './spring';
 import { DEPTH } from '../config';
 import { playSfx } from '../audio/sfx';
@@ -111,7 +111,7 @@ export class Player extends Actor {
     this.aura = s.add.graphics().setDepth(4);
     this.springBack = s.add.graphics();
     this.springFront = s.add.graphics();
-    this.hair = new SpringChain(7, 2, x, y - 20);
+    this.hair = new SpringChain(HERO_SPRING.count, 2, x, y - 20);
     this.ribbons = [new SpringChain(5, 2, x, y - 18, 0.84), new SpringChain(4, 2, x, y - 18, 0.8)];
     // 검날(원소 레이어)에만 은은한 글로우
     const fx = this.elemImg.preFX?.addGlow(ELEMENT_COLOR[element], 1.2, 0, false, 0.1, 4);
@@ -465,7 +465,7 @@ export class Player extends Actor {
     // 바라보는 반대쪽으로 살짝 날림 + 미세한 바람
     const away = this.facing * -60;
     const wind = Math.sin(t * 3.1) * 25;
-    this.hair.update(hx, hy, dt, away * 0.6 + wind * 0.4, 520);
+    this.hair.update(hx, hy, dt, away * 0.6 + wind * 0.4, HERO_SPRING.gravity);
     this.ribbons[0].update(bx, by, dt, away + wind, 300 + Math.sin(t * 7) * 60);
     this.ribbons[1].update(bx, by + 1, dt, away * 0.8 - wind * 0.5, 340 + Math.cos(t * 6) * 60);
     const tint = this.elemTint ?? ELEMENT_COLOR[this.element];
@@ -476,8 +476,8 @@ export class Player extends Actor {
     back.clear();
     front.clear();
     const gHair = an.front ? front : back;
-    const gBand = an.front ? front : back;
-    this.hair.draw(gHair, [C.hairS0, C.hairS0, C.hairS1, C.hairS1, C.hairS2, C.hairS2], [2, 2, 2, 1, 1, 1], SELOUT[E32.silver]);
+    const gBand = (an.bandFront ?? an.front) ? front : back;
+    this.hair.draw(gHair, HERO_SPRING.colors, HERO_SPRING.widths, HERO_SPRING.outline);
     this.ribbons[0].draw(gBand, [ramp[1], ramp[1], ramp[2], ramp[2]], [1], ramp[3]);
     this.ribbons[1].draw(gBand, [ramp[1], ramp[2], ramp[2]], [1], ramp[3]);
   }
