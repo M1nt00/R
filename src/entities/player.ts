@@ -6,6 +6,7 @@ import { ELEMENT_COLOR, ELEMENT_LIGHT, C, E32, SELOUT, mixColor, scaleColor } fr
 import { RULES } from '../element/data';
 import type { HitInfo, HitResult } from '../combat/damage';
 import { basicAttack, skillAttack, SKILL_COOLDOWN, type Payload, type SwingAnim } from '../combat/attacks';
+import { heroOriginY } from '../art/customArt';
 import { HERO_ANIMS, HERO_ANCHORS, HERO_SOURCE, HERO_SPRING, type Dir } from '../art/heroSprites';
 import { SpringChain } from './spring';
 import { DEPTH } from '../config';
@@ -94,7 +95,7 @@ export class Player extends Actor {
       hp: st.maxHp,
       team: 'player',
       tint: ELEMENT_COLOR[element],
-      originY: 27 / 32,
+      originY: heroOriginY(),
       height: 20,
       look: 'raw',
     });

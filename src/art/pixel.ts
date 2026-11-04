@@ -174,17 +174,22 @@ export const SPRITE_PIXELS = new Map<string, Px[]>();
 export function registerSheet(scene: Phaser.Scene, key: string, frames: Px[]): void {
   const fw = frames[0].w;
   const fh = frames[0].h;
+  // 텍스처 한 변이 4096px을 넘지 않도록 여러 줄로 감싼다 (큰 칸 × 많은 프레임 대비)
+  const cols = Math.max(1, Math.min(frames.length, Math.floor(4096 / fw)));
+  const rows = Math.ceil(frames.length / cols);
   const canvas = document.createElement('canvas');
-  canvas.width = fw * frames.length;
-  canvas.height = fh;
+  canvas.width = fw * cols;
+  canvas.height = fh * rows;
   const ctx = canvas.getContext('2d')!;
-  const img = ctx.createImageData(canvas.width, fh);
+  const img = ctx.createImageData(canvas.width, canvas.height);
   frames.forEach((f, i) => {
+    const ox = (i % cols) * fw;
+    const oy = Math.floor(i / cols) * fh;
     for (let y = 0; y < fh; y++) {
       for (let x = 0; x < fw; x++) {
         const c = f.d[y * fw + x];
         if (c === NONE) continue;
-        const o = (y * canvas.width + i * fw + x) * 4;
+        const o = ((oy + y) * canvas.width + ox + x) * 4;
         img.data[o] = (c >> 16) & 255;
         img.data[o + 1] = (c >> 8) & 255;
         img.data[o + 2] = c & 255;
@@ -195,7 +200,7 @@ export function registerSheet(scene: Phaser.Scene, key: string, frames: Px[]): v
   ctx.putImageData(img, 0, 0);
   if (scene.textures.exists(key)) scene.textures.remove(key);
   const tex = scene.textures.addCanvas(key, canvas)!;
-  frames.forEach((_, i) => tex.add(String(i), 0, i * fw, 0, fw, fh));
+  frames.forEach((_, i) => tex.add(String(i), 0, (i % cols) * fw, Math.floor(i / cols) * fh, fw, fh));
   SPRITE_PIXELS.set(key, frames);
 }
 

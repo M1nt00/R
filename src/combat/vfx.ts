@@ -105,7 +105,7 @@ export class Vfx {
     const fi = Number(img.frame.name) || 0;
     const body = bodyFrames[fi];
     const elem = elemFrames?.[fi];
-    const step = body.w > 32 ? 2 : 1;
+    const step = body.w > 48 ? 2 : 1;
     const ox = img.x - img.displayOriginX;
     const oy = img.y - img.displayOriginY;
     for (let y = 0; y < body.h; y += step) {

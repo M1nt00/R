@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import { Px, NONE, registerSheet } from './pixel';
-import { DIRS, ORDER, DURS, HERO_SOURCE, heroCell } from './heroSprites';
+import { DIRS, ORDER, DURS, HERO_SOURCE, HERO_SHEET_COLS, heroCell } from './heroSprites';
 
 /**
  * 직접 그린 주인공 스프라이트 교체.
@@ -14,6 +14,13 @@ const BODY_URL = find('hero_body.png');
 const ELEM_URL = find('hero_elem.png');
 
 export const hasCustomHero = (): boolean => !!(BODY_URL && ELEM_URL);
+
+/**
+ * 칸 크기는 시트 가로 / 6 으로 정한다 (32 → 192px, 48 → 288px 시트).
+ * 발밑선은 칸 아래에서 6px 위 (32칸 = y26, 48칸 = y42), 가로 중심은 칸 가운데.
+ */
+export const HERO_CELL = { size: 32, foot: 26 };
+export const heroOriginY = (): number => (HERO_CELL.foot + 1) / HERO_CELL.size;
 
 export function preloadCustomHero(scene: Phaser.Scene): void {
   if (!hasCustomHero()) return;
@@ -32,20 +39,21 @@ export function installCustomHero(scene: Phaser.Scene): boolean {
     const ctx = cv.getContext('2d')!;
     ctx.drawImage(img, 0, 0);
     const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    const cell = Math.max(32, Math.round(img.width / HERO_SHEET_COLS));
     const frames: Px[] = [];
     DIRS.forEach((_, di) => {
       ORDER.forEach((anim, ai) => {
         for (let f = 0; f < DURS[anim].length; f++) {
           const { col, row } = heroCell(di, ai, f);
-          const p = new Px(32, 32);
-          for (let y = 0; y < 32; y++) {
-            for (let x = 0; x < 32; x++) {
-              const sx = col * 32 + x;
-              const sy = row * 32 + y;
+          const p = new Px(cell, cell);
+          for (let y = 0; y < cell; y++) {
+            for (let x = 0; x < cell; x++) {
+              const sx = col * cell + x;
+              const sy = row * cell + y;
               if (sx >= cv.width || sy >= cv.height) continue;
               const o = (sy * cv.width + sx) * 4;
               if (data[o + 3] < 128) continue;
-              p.d[y * 32 + x] = (data[o] << 16) | (data[o + 1] << 8) | data[o + 2];
+              p.d[y * cell + x] = (data[o] << 16) | (data[o + 1] << 8) | data[o + 2];
             }
           }
           frames.push(p);
@@ -55,6 +63,8 @@ export function installCustomHero(scene: Phaser.Scene): boolean {
     return frames;
   };
   const bodies = read('custom_hero_body_src');
+  HERO_CELL.size = bodies[0].w;
+  HERO_CELL.foot = bodies[0].w - 6;
   const elems = read('custom_hero_elem_src');
   registerSheet(scene, 'hero_body', bodies);
   registerSheet(scene, 'hero_elem_raw', elems);
