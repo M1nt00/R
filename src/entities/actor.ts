@@ -44,6 +44,8 @@ export abstract class Actor {
   hop = 0;
   shadowScale = 1;
   look: LookName = 'neutral';
+  /** 원소 레이어를 흰색으로 두고 색을 입힐 때 (null이면 구운 색 그대로) */
+  elemTint: number | null = null;
 
   hp: number;
   maxHp: number;
@@ -273,7 +275,8 @@ export abstract class Actor {
       this.elemImg.setTint(E32.silver);
     } else {
       this.bodyImg.clearTint();
-      this.elemImg.clearTint();
+      if (this.elemTint !== null) this.elemImg.setTint(this.elemTint);
+      else this.elemImg.clearTint();
     }
     this.drawHud();
   }

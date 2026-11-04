@@ -2,11 +2,11 @@ import Phaser from 'phaser';
 import type { RoomScene } from '../scenes/RoomScene';
 import { Actor } from './actor';
 import { ELEMENTS, ELEMENT_NAME, type Element } from '../element/types';
-import { ELEMENT_COLOR, ELEMENT_LIGHT, ELEMENT_RAMP, C, E32, SELOUT } from '../art/palette';
+import { ELEMENT_COLOR, ELEMENT_LIGHT, C, E32, SELOUT, mixColor, scaleColor } from '../art/palette';
 import { RULES } from '../element/data';
 import type { HitInfo, HitResult } from '../combat/damage';
 import { basicAttack, skillAttack, SKILL_COOLDOWN, type Payload, type SwingAnim } from '../combat/attacks';
-import { HERO_ANIMS, HERO_ANCHORS, type Dir } from '../art/heroSprites';
+import { HERO_ANIMS, HERO_ANCHORS, HERO_SOURCE, type Dir } from '../art/heroSprites';
 import { SpringChain } from './spring';
 import { DEPTH } from '../config';
 import { playSfx } from '../audio/sfx';
@@ -96,8 +96,9 @@ export class Player extends Actor {
       tint: ELEMENT_COLOR[element],
       originY: 27 / 32,
       height: 20,
-      look: element,
+      look: 'raw',
     });
+    this.elemTint = ELEMENT_COLOR[element];
     this.hp = st.hp;
     this.element = element;
     this.atkMult = st.atk;
@@ -129,6 +130,14 @@ export class Player extends Actor {
       return;
     }
     this.baseUpdate(dt);
+    // 원소 색이 스르륵 바뀜 (약 0.25초)
+    const target = ELEMENT_COLOR[this.element];
+    if (this.elemTint !== target) {
+      const k = 1 - Math.exp(-dt * 14);
+      const next = mixColor(this.elemTint ?? target, target, k);
+      this.elemTint = next === this.elemTint ? target : next;
+      if (this.glowFx) this.glowFx.color = this.elemTint;
+    }
 
     this.switchCd = Math.max(0, this.switchCd - dt);
     this.attackCd = Math.max(0, this.attackCd - dt);
@@ -303,8 +312,7 @@ export class Player extends Actor {
     if (el === this.element || this.switchCd > 0) return;
     this.element = el;
     this.elementTint = ELEMENT_COLOR[el];
-    this.setLook(el);
-    if (this.glowFx) this.glowFx.color = ELEMENT_COLOR[el];
+
     this.switchCd = SWITCH_CD;
     this.empowered = this.s.engine.mods.relics.has('twin_hands') ? 2 : 1;
     if (this.s.engine.mods.relics.has('boots')) this.boostT = 2;
@@ -439,7 +447,11 @@ export class Player extends Actor {
   /** 포니테일·리본: 프레임별 앵커에 매달린 스프링을 몸 앞/뒤에 그린다 */
   private drawSprings(frame: number) {
     const an = HERO_ANCHORS[frame];
-    if (!an) return;
+    if (!an || HERO_SOURCE.custom) {
+      this.springBack.clear();
+      this.springFront.clear();
+      return;
+    }
     const img = this.bodyImg;
     const flip = img.flipX;
     const toWorld = (c: number, r: number): [number, number] => [
@@ -456,7 +468,8 @@ export class Player extends Actor {
     this.hair.update(hx, hy, dt, away * 0.6 + wind * 0.4, 520);
     this.ribbons[0].update(bx, by, dt, away + wind, 300 + Math.sin(t * 7) * 60);
     this.ribbons[1].update(bx, by + 1, dt, away * 0.8 - wind * 0.5, 340 + Math.cos(t * 6) * 60);
-    const ramp = ELEMENT_RAMP[this.element];
+    const tint = this.elemTint ?? ELEMENT_COLOR[this.element];
+    const ramp = [tint, scaleColor(tint, 0.85), scaleColor(tint, 0.65), scaleColor(tint, 0.35)];
     const depth = DEPTH.actor + Math.round(this.y);
     const back = this.springBack.setDepth(depth - 0.2);
     const front = this.springFront.setDepth(depth + 0.02);

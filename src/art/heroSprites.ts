@@ -56,9 +56,9 @@ const P = (o: Partial<Pose> & { hand: [number, number]; ang: number }): Pose => 
   ...o,
 });
 
-type AnimName = 'idle' | 'run' | 'roll' | 'attack' | 'attack2' | 'cast' | 'hurt' | 'death';
-const ORDER: AnimName[] = ['idle', 'run', 'roll', 'attack', 'attack2', 'cast', 'hurt', 'death'];
-const DURS: Record<AnimName, number[]> = {
+export type AnimName = 'idle' | 'run' | 'roll' | 'attack' | 'attack2' | 'cast' | 'hurt' | 'death';
+export const ORDER: AnimName[] = ['idle', 'run', 'roll', 'attack', 'attack2', 'cast', 'hurt', 'death'];
+export const DURS: Record<AnimName, number[]> = {
   idle: [0.32, 0.16, 0.32, 0.16],
   run: [0.07, 0.07, 0.07, 0.07, 0.07, 0.07],
   // 0: 예비동작(움츠림) → 1~4: 구르기
@@ -91,6 +91,15 @@ export const SWING_HIT_DELAY = DURS.attack[0];
 export const CAST_HIT_DELAY = DURS.cast[0];
 
 export const HERO_ANCHORS: Anchor[] = [];
+
+/** 직접 그린 PNG를 쓰는 중인지 (그때는 스프링 앵커가 없으므로 2차 동작을 끈다) */
+export const HERO_SOURCE = { custom: false };
+
+/** 시트 배치: 행 = 방향 × 동작 (아래·위·옆 순, 동작은 ORDER 순), 열 = 프레임 번호 */
+export const HERO_SHEET_COLS = 6;
+export function heroCell(dirIdx: number, animIdx: number, frame: number): { col: number; row: number } {
+  return { col: frame, row: dirIdx * 8 + animIdx };
+}
 
 const runLegs = (k: number) => {
   const s = Math.sin((k / 6) * Math.PI * 2);
@@ -509,5 +518,6 @@ export function buildHeroSprites(scene: Phaser.Scene): void {
       }
     }
   }
-  registerActor(scene, 'hero', bodies, elems);
+  registerActor(scene, 'hero', bodies, elems, ['raw']);
+  HERO_SOURCE.custom = false;
 }

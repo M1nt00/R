@@ -113,7 +113,8 @@ export const E2 = 0x989898;
 export const E3 = 0x505050;
 export const ELEM_GRAYS = [E0, E1, E2, E3];
 
-export type LookName = Element | 'neutral' | 'arcane';
+/** raw = 회색 단계 그대로 (setTint로 색을 입힐 때) */
+export type LookName = Element | 'neutral' | 'arcane' | 'raw';
 
 /** [하이라이트, 중간, 그림자, 외곽선] — 하이라이트는 노랑 쪽, 그림자는 파랑·보라 쪽으로 */
 export const ELEMENT_RAMP: Record<LookName, [number, number, number, number]> = {
@@ -122,6 +123,7 @@ export const ELEMENT_RAMP: Record<LookName, [number, number, number, number]> = 
   wind: [E32.yellow, E32.lime, E32.green, E32.teal],
   lightning: [E32.white, E32.yellow, E32.amber, E32.brown],
   neutral: [E32.white, E32.silver, E32.steel, E32.indigo],
+  raw: [E0, E1, E2, E3],
   arcane: [E32.pink, E32.magenta, E32.plum, E32.darkbrown],
 };
 
@@ -186,3 +188,17 @@ const lum = (c: number) => ((c >> 16) & 255) * 0.3 + ((c >> 8) & 255) * 0.59 + (
 export const luminance = lum;
 
 export const toCss = (c: number): string => '#' + c.toString(16).padStart(6, '0');
+
+/** 두 색을 t(0~1)만큼 섞기 — 원소 색이 서서히 바뀌는 데 사용 */
+export function mixColor(a: number, b: number, t: number): number {
+  const r = Math.round(((a >> 16) & 255) + (((b >> 16) & 255) - ((a >> 16) & 255)) * t);
+  const g = Math.round(((a >> 8) & 255) + (((b >> 8) & 255) - ((a >> 8) & 255)) * t);
+  const bl = Math.round((a & 255) + ((b & 255) - (a & 255)) * t);
+  return (r << 16) | (g << 8) | bl;
+}
+
+/** 색에 밝기 배율 곱하기 */
+export function scaleColor(c: number, k: number): number {
+  const f = (v: number) => Math.max(0, Math.min(255, Math.round(v * k)));
+  return (f((c >> 16) & 255) << 16) | (f((c >> 8) & 255) << 8) | f(c & 255);
+}

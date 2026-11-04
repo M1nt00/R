@@ -5,16 +5,23 @@ import fontS from 'galmuri/dist/Galmuri7.woff2?url';
 import { buildHeroSprites } from '../art/heroSprites';
 import { buildEnemySprites } from '../art/enemySprites';
 import { buildPropSprites } from '../art/propSprites';
+import { preloadCustomHero, installCustomHero } from '../art/customArt';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
     super('Boot');
   }
 
+  preload(): void {
+    preloadCustomHero(this);
+  }
+
   create(): void {
     buildPropSprites(this);
     buildHeroSprites(this);
     buildEnemySprites(this);
+    // art/hero/ 에 직접 그린 그림이 있으면 덮어쓰기
+    if (installCustomHero(this)) console.info('[art] 직접 그린 주인공 스프라이트 사용');
     const start = () => {
       this.scene.start('Room', { hub: true });
       this.scene.launch('UI');
