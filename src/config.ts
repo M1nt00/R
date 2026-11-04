@@ -8,18 +8,22 @@ export const TILE = 16;
 export const COLS = 30;
 export const ROWS = 17;
 
-export const FONT =
-  '"Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+/** 한글 픽셀 폰트 (Galmuri11 Bold, OFL) */
+export const FONT = 'Galmuri, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
 
 export const DEPTH = {
   floor: 0,
   terrain: 1,
-  field: 2,
-  telegraph: 3,
-  shadow: 4,
+  decal: 2,
+  field: 3,
+  telegraph: 4,
+  shadow: 5,
   actor: 10,
   projectile: 4000,
   vfx: 5000,
-  hud: 5500,
+  light: 5800,
+  glow: 5850,
+  hud: 5900,
   text: 6000,
+  vignette: 6500,
 } as const;

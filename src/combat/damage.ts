@@ -20,20 +20,21 @@ export interface HitInfo {
   /** 플레이어가 구르기 시작 직후라면 완벽 회피 판정 대상 */
   perfectDodgeable?: boolean;
   isReaction?: boolean;
+  reactionId?: string;
   /** 지형·장판 틱 */
   environmental?: boolean;
+  /** 위에서 떨어지는 공격 (방패 무시) */
+  fromAbove?: boolean;
   color?: number;
 }
 
-export type HitResult = 'hit' | 'dodged' | 'perfect' | 'ignored';
+export type HitResult = 'hit' | 'dodged' | 'perfect' | 'ignored' | 'blocked';
 
 export class Combat {
   constructor(private readonly s: RoomScene) {}
 
   inCircle(x: number, y: number, r: number, team: Team | 'all'): Actor[] {
-    return this.s
-      .actorsOfTeam(team)
-      .filter((a) => Phaser.Math.Distance.Between(x, y, a.x, a.y) <= r + a.radius);
+    return this.s.actorsOfTeam(team).filter((a) => Phaser.Math.Distance.Between(x, y, a.x, a.y) <= r + a.radius);
   }
 
   inArc(x: number, y: number, range: number, angle: number, half: number, team: Team | 'all'): Actor[] {
@@ -52,12 +53,21 @@ export class Combat {
     if (res !== 'ok') return res;
 
     let dmg = h.damage;
-    if (h.isReaction && target.team === 'player') dmg *= RULES.playerDamageMult;
+    if (target.team === 'player' && h.isReaction) dmg *= RULES.playerDamageMult;
+    if (target.team === 'enemy') {
+      const m = this.s.engine.mods;
+      if (target.frozenT > 0) {
+        if (m.relics.has('frozen_heart')) dmg = 0;
+        else if (m.mastery.has('freeze')) dmg *= 1.5;
+      }
+      dmg *= target.damageTakenMult();
+    }
+    target.lastHit = h;
     if (dmg > 0) {
       target.hp = Math.max(0, target.hp - dmg);
       target.flash();
       const col = h.color ?? (target.team === 'player' ? 0xff5566 : 0xffffff);
-      this.s.vfx.number(target.x, target.y - 16, dmg, col, h.isReaction === true);
+      this.s.vfx.number(target.x, target.y - target.height - 2, dmg, col, h.isReaction === true);
       target.onDamaged(h, dmg);
     }
 

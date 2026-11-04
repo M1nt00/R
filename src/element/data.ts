@@ -16,7 +16,7 @@ export type EffectType =
   | 'aoeSlow'
   | 'chainExplosion';
 
-export type FieldKind = 'flames' | 'steam' | 'plasma' | 'fireTornado' | 'tornado';
+export type FieldKind = 'flames' | 'steam' | 'plasma' | 'fireTornado' | 'tornado' | 'lava';
 
 export interface EffectDef {
   type: EffectType;

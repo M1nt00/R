@@ -27,34 +27,42 @@ export interface ProjectileSpec {
 interface Projectile {
   spec: ProjectileSpec;
   img: Phaser.GameObjects.Image;
+  glow: Phaser.GameObjects.Image;
   x: number;
   y: number;
   life: number;
   hitSet: Set<Actor>;
   lastTile: number;
+  trailT: number;
   alive: boolean;
 }
 
-/** 투사체 — 이미지 오브젝트 풀링 */
+/** 투사체 — 이미지 오브젝트 풀링, 광채·꼬리 */
 export class ProjectileSystem {
-  private readonly pool: Phaser.GameObjects.Image[] = [];
+  private readonly pool: { img: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image }[] = [];
   private list: Projectile[] = [];
 
   constructor(private readonly s: RoomScene) {}
 
   spawn(spec: ProjectileSpec): void {
-    const img = this.pool.pop() ?? this.s.add.image(0, 0, spec.texture);
-    img
-      .setTexture(spec.texture)
+    const o =
+      this.pool.pop() ??
+      {
+        img: this.s.add.image(0, 0, spec.texture),
+        glow: this.s.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD),
+      };
+    o.img
+      .setTexture(spec.texture, '0')
       .setTint(spec.color)
       .setActive(true)
       .setVisible(true)
       .setDepth(DEPTH.projectile)
       .setPosition(spec.x, spec.y)
       .setRotation(Math.atan2(spec.vy, spec.vx));
+    o.glow.setTint(spec.color).setActive(true).setVisible(true).setDepth(DEPTH.glow).setScale(0.55).setAlpha(0.7);
     const hitSet = new Set<Actor>();
     if (spec.ignore) hitSet.add(spec.ignore);
-    this.list.push({ spec, img, x: spec.x, y: spec.y, life: spec.life, hitSet, lastTile: -1, alive: true });
+    this.list.push({ spec, img: o.img, glow: o.glow, x: spec.x, y: spec.y, life: spec.life, hitSet, lastTile: -1, trailT: 0, alive: true });
   }
 
   update(dt: number): void {
@@ -66,25 +74,31 @@ export class ProjectileSystem {
       p.y += sp.vy * dt;
       p.life -= dt;
       p.img.setPosition(p.x, p.y);
-      if (p.life <= 0 || s.terrain.isWallAt(p.x, p.y)) {
+      p.glow.setPosition(p.x, p.y);
+      p.trailT -= dt;
+      if (p.trailT <= 0) {
+        p.trailT = 0.03;
+        s.vfx.spark(p.x, p.y + 6, sp.color, 1, 8, 5);
+      }
+      // 투사체는 몸통 높이(-6)로 날아감 → 바닥 판정은 +6
+      if (p.life <= 0 || s.terrain.isWallAt(p.x, p.y + 6)) {
         this.kill(p);
         continue;
       }
       if (sp.element) {
-        const tile = s.terrain.tileOf(p.x, p.y);
+        const tile = s.terrain.tileOf(p.x, p.y + 6);
         if (tile !== p.lastTile) {
           p.lastTile = tile;
-          s.terrain.applyElement(p.x, p.y, 2, sp.element);
+          s.terrain.applyElement(p.x, p.y + 6, 2, sp.element);
         }
       }
-      // 발밑 판정이 아니라 몸통 높이로 판정 (투사체는 몸통 높이 -4에서 날아감)
       for (const a of s.actorsOfTeam(otherTeam(sp.team))) {
         if (p.hitSet.has(a)) continue;
-        if (Phaser.Math.Distance.Between(p.x, p.y + 4, a.x, a.y) > sp.radius + a.radius) continue;
+        if (Phaser.Math.Distance.Between(p.x, p.y + 6, a.x, a.y) > sp.radius + a.radius + 1) continue;
         p.hitSet.add(a);
         const len = Math.hypot(sp.vx, sp.vy) || 1;
         const res = s.combat.hit(a, { ...sp.hit, fromX: a.x - (sp.vx / len) * 10, fromY: a.y - (sp.vy / len) * 10 });
-        if (res === 'hit' && !sp.pierce) {
+        if ((res === 'hit' || res === 'blocked') && !sp.pierce) {
           this.kill(p);
           break;
         }
@@ -93,10 +107,20 @@ export class ProjectileSystem {
     this.list = this.list.filter((p) => p.alive);
   }
 
+  emitLights(): void {
+    for (const p of this.list) this.s.lighting.add(p.x, p.y + 4, 26, p.spec.color, 0.6);
+  }
+
+  clearTeam(team: Team): void {
+    for (const p of this.list) if (p.spec.team === team) this.kill(p);
+    this.list = this.list.filter((p) => p.alive);
+  }
+
   private kill(p: Projectile): void {
     p.alive = false;
-    this.s.vfx.burst(p.x, p.y, p.spec.color, 4);
+    this.s.vfx.spark(p.x, p.y + 6, p.spec.color, 5, 50, 40);
     p.img.setActive(false).setVisible(false);
-    this.pool.push(p.img);
+    p.glow.setActive(false).setVisible(false);
+    this.pool.push({ img: p.img, glow: p.glow });
   }
 }

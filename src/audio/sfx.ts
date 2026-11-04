@@ -138,6 +138,59 @@ export function playSfx(name: string): void {
     case 'terrain':
       tone(c, 500, 250, 0.15, 'triangle', 0.09);
       break;
+    case 'heal':
+      tone(c, 520, 780, 0.15, 'sine', 0.12);
+      tone(c, 780, 1170, 0.2, 'sine', 0.1, 0.08);
+      break;
+    case 'block':
+      tone(c, 1200, 900, 0.06, 'square', 0.08);
+      noise(c, 0.05, 0.3, 4000, 2000, 2, 'highpass');
+      break;
+    case 'shatter':
+      noise(c, 0.4, 0.6, 6000, 800, 1, 'highpass');
+      tone(c, 2000, 400, 0.3, 'triangle', 0.15);
+      break;
+    case 'coin':
+      tone(c, 1320, 1320, 0.05, 'square', 0.05);
+      tone(c, 1760, 1760, 0.08, 'square', 0.05, 0.04);
+      break;
+    case 'pickup':
+      tone(c, 660, 1320, 0.18, 'triangle', 0.14);
+      break;
+    case 'door':
+      noise(c, 0.35, 0.3, 300, 120, 0.8, 'lowpass');
+      tone(c, 220, 440, 0.3, 'triangle', 0.08, 0.1);
+      break;
+    case 'roar':
+      noise(c, 0.9, 0.7, 500, 60, 0.6, 'lowpass');
+      tone(c, 90, 45, 0.9, 'sawtooth', 0.2);
+      break;
+    case 'slam':
+      noise(c, 0.45, 0.8, 600, 50, 0.6, 'lowpass');
+      tone(c, 80, 30, 0.4, 'sine', 0.5);
+      break;
+    case 'shield':
+      tone(c, 300, 600, 0.3, 'triangle', 0.1);
+      tone(c, 450, 900, 0.3, 'sine', 0.08, 0.05);
+      break;
+    case 'select':
+      tone(c, 880, 1320, 0.12, 'triangle', 0.14);
+      tone(c, 1320, 1760, 0.15, 'sine', 0.1, 0.06);
+      break;
+    case 'buy':
+      tone(c, 990, 990, 0.06, 'square', 0.06);
+      tone(c, 1480, 1480, 0.12, 'square', 0.06, 0.06);
+      break;
+    case 'deny':
+      tone(c, 200, 160, 0.15, 'square', 0.08);
+      break;
+    case 'portal':
+      tone(c, 200, 1600, 0.8, 'sine', 0.12);
+      noise(c, 0.8, 0.3, 500, 4000, 1.5);
+      break;
+    case 'hover':
+      tone(c, 1200, 1200, 0.03, 'triangle', 0.04);
+      break;
     case 'secondary':
       tone(c, 440, 1760, 0.25, 'sawtooth', 0.08);
       noise(c, 0.3, 0.35, 3000, 500, 1);
@@ -147,5 +200,79 @@ export function playSfx(name: string): void {
 
 export function toggleMute(): boolean {
   muted = !muted;
+  if (master && ctx) master.gain.setTargetAtTime(muted ? 0 : 0.2, ctx.currentTime, 0.05);
   return muted;
+}
+
+export function isMuted(): boolean {
+  return muted;
+}
+
+// ───────────────── 배경음: 절차적 앰비언트 (저음 드론 + 화음 패드 + 드문 아르페지오) ─────────────────
+
+type Mood = 'hub' | 'run' | 'boss' | 'none';
+let mood: Mood = 'none';
+let musicGain: GainNode | null = null;
+let timer: number | null = null;
+let step = 0;
+
+const SCALES: Record<Exclude<Mood, 'none'>, { root: number; chords: number[][]; tempo: number; arp: number }> = {
+  hub: { root: 55, chords: [[0, 7, 12, 16], [5, 12, 17, 21], [3, 10, 15, 19], [7, 14, 19, 22]], tempo: 0.42, arp: 0.35 },
+  run: { root: 49, chords: [[0, 7, 12, 15], [-2, 5, 10, 14], [3, 10, 15, 19], [-4, 3, 8, 12]], tempo: 0.3, arp: 0.5 },
+  boss: { root: 46, chords: [[0, 7, 12, 13], [1, 8, 13, 16], [0, 7, 12, 15], [-2, 5, 10, 13]], tempo: 0.2, arp: 0.75 },
+};
+
+const hz = (root: number, semi: number) => root * Math.pow(2, semi / 12);
+
+function note(c: AudioContext, f: number, t0: number, dur: number, type: OscillatorType, vol: number, cutoff = 1800) {
+  const o = c.createOscillator();
+  const g = c.createGain();
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = cutoff;
+  o.type = type;
+  o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(vol, t0 + Math.min(0.4, dur * 0.3));
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(lp);
+  lp.connect(g);
+  g.connect(musicGain!);
+  o.start(t0);
+  o.stop(t0 + dur + 0.05);
+}
+
+function tick() {
+  if (!ctx || mood === 'none' || !musicGain) return;
+  const sc = SCALES[mood];
+  const beat = sc.tempo;
+  const now = ctx.currentTime + 0.05;
+  const bar = Math.floor(step / 8) % sc.chords.length;
+  const chord = sc.chords[bar];
+  if (step % 8 === 0) {
+    note(ctx, hz(sc.root, chord[0]) / 2, now, beat * 8.5, 'sine', 0.22, 400);
+    for (const n of chord.slice(1)) note(ctx, hz(sc.root * 2, n), now, beat * 8.2, 'triangle', 0.035, 1200);
+  }
+  if (mood === 'boss' && step % 2 === 0) note(ctx, hz(sc.root, chord[0]) / 2, now, beat * 0.9, 'sawtooth', 0.05, 300);
+  if (Math.random() < sc.arp && step % 2 === 0) {
+    const n = chord[Math.floor(Math.random() * chord.length)] + 12 * (1 + Math.floor(Math.random() * 2));
+    note(ctx, hz(sc.root * 2, n), now, beat * 3, 'triangle', 0.05, 2600);
+  }
+  step++;
+}
+
+export function playMusic(next: Mood): void {
+  if (next === mood) return;
+  mood = next;
+  const c = audio();
+  if (!c) return;
+  if (!musicGain) {
+    musicGain = c.createGain();
+    musicGain.gain.value = 0.5;
+    musicGain.connect(master!);
+  }
+  step = 0;
+  if (timer !== null) window.clearInterval(timer);
+  if (next === 'none') return;
+  timer = window.setInterval(tick, SCALES[next].tempo * 1000);
 }
