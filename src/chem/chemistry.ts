@@ -145,29 +145,48 @@ interface Lump {
   fizz: number;
   img: Phaser.GameObjects.Image;
   label: Phaser.GameObjects.Container;
+  labelW: number;
+  /** 라벨이 둥둥 뜨는 박자 */
+  ph: number;
 }
 
-/** 반응으로 생긴 물: 둥근 웅덩이 하나. 겹쳐서 생기면 하나로 합쳐지고 양(계수)이 늘어난다 */
+/** 물웅덩이 원 하나. 반응 한 번에 하나씩 생기고, 자기 몫의 물(H₂O 개수)을 가진다 */
 interface WaterSpot {
   x: number;
   y: number;
+  /** 지금 반지름 (목표 반지름으로 부드럽게 바뀜) */
   r: number;
+  targetR: number;
+  amount: number;
   /** 생기는 중 0 → 1 */
   grow: number;
+  /** 나트륨 반응으로 마르는 중 (남은 시간), 0 = 아님 */
+  drain: number;
+  dead: boolean;
   /** 물 표면의 짧은 물결 (웅덩이 안 위치 u·v는 -1~1) */
   dashes: { u: number; v: number; len: number; ph: number }[];
 }
 
+/** 눈에 보이게 서로 닿은 원들 = 물웅덩이 하나. 라벨은 전체 양 (예: 3H₂O) */
 interface Water {
   spots: WaterSpot[];
-  amount: number;
   t: number;
-  /** 나트륨 반응으로 없어지는 중 (남은 시간), 0 = 아님 */
-  drain: number;
   ph: number;
   label: Phaser.GameObjects.Container | null;
   labelW: number;
 }
+
+const waterRadius = (amount: number) => (amount >= 2 ? WATER_R_BIG : WATER_R);
+const liveSpots = (w: Water) => w.spots.filter((sp) => sp.drain <= 0 && !sp.dead);
+const waterAmount = (w: Water) => liveSpots(w).reduce((t, sp) => t + sp.amount, 0);
+
+/** 두 원(납작한 타원)이 눈에 보이게 닿거나 겹치는지 */
+function spotsTouch(a: WaterSpot, b: WaterSpot): boolean {
+  return Math.hypot(a.x - b.x, (a.y - b.y) / WATER_SQUASH) <= a.targetR + b.targetR;
+}
+
+/** 라벨이 둥둥 뜨는 높이 (정수 픽셀, -2 ~ 2) */
+const bob = (time: number, ph: number) => Math.round(Math.sin(time * 2.4 + ph) * 1.5);
 
 const FLASK = ['..ccc..', '..oGo..', '..oGo..', '.oLLLo.', 'oLWLLLo', 'oLLLLlo', 'oLLLllo', '.olllo.', '..ooo..'];
 const LUMP = ['.oooo.', 'oWSSso', 'oSssdo', '.oooo.'];
@@ -396,8 +415,8 @@ export class ChemSystem {
     c.condense = c.condenseMax = rx.reveal;
     s.scheduler.after(rx.reveal, () => {
       this.showSpecies(c, after, seq);
-      const r = amount >= 2 ? WATER_R_BIG : WATER_R;
-      this.addWater(c.x, c.y, r, amount);
+      const r = waterRadius(amount);
+      this.addWater(c.x, c.y, amount);
       s.vfx.ring(c.x, c.y, 4, r + 6, E32.blue, 0.3, 2);
       s.vfx.spark(c.x, c.y - 6, E32.cyan, 10 + amount * 6, 60, 50);
       s.vfx.glow(c.x, c.y - 4, r + 8, E32.blue, 0.3);
@@ -443,14 +462,9 @@ export class ChemSystem {
         color: E32.amber,
       });
     }
-    // 물은 반응으로 사라지고(나트륨이 떨어진 물웅덩이 전체), 수소 기체(H₂)가 남는다
-    const w = this.waterAt(x, y);
-    if (w) {
-      w.drain = WATER_DRAIN;
-      w.label?.destroy();
-      w.label = null;
-      for (const sp of w.spots) s.vfx.spark(sp.x, sp.y - 4, E32.white, 8, 40, 60);
-    }
+    // 반응식대로 물은 2H₂O만 쓴다 (나트륨이 떨어진 자리부터). 남은 물은 줄어든 채로 남고, 수소 기체(H₂)가 생긴다
+    const w = this.waterAt(x, y, 4);
+    if (w) this.consumeWater(w, x, y, 2);
     this.addCloud(x, y - 2, ['H2']);
   }
 
@@ -541,8 +555,7 @@ export class ChemSystem {
   /** 점이 물웅덩이(납작한 원) 안인지 */
   private waterAt(x: number, y: number, margin = 2): Water | null {
     for (const w of this.waters) {
-      if (w.drain > 0) continue;
-      for (const sp of w.spots) {
+      for (const sp of liveSpots(w)) {
         const rx = sp.r * sp.grow + margin;
         const ry = sp.r * WATER_SQUASH * sp.grow + margin;
         const dx = (x - sp.x) / rx;
@@ -553,57 +566,118 @@ export class ChemSystem {
     return null;
   }
 
-  /** 반응으로 생긴 물. 이미 있는 물과 겹치면 하나로 합쳐 양(계수)을 늘린다 */
-  private addWater(x: number, y: number, r: number, amount: number): void {
+  /** 반응으로 생긴 물. 닿는 물이 있으면 하나로 합쳐 양(계수)을 늘린다 (여럿과 닿으면 전부 하나로) */
+  private addWater(x: number, y: number, amount: number): void {
+    const r = waterRadius(amount);
     const dashes: WaterSpot['dashes'] = [];
-    for (let i = 0; i < Math.round(r / 2.5); i++) {
+    for (let i = 0; i < Math.round(WATER_R_BIG / 2.5); i++) {
       const a = Math.random() * Math.PI * 2;
       const d = Math.sqrt(Math.random()) * 0.75;
       dashes.push({ u: Math.cos(a) * d, v: Math.sin(a) * d, len: 2 + Math.floor(Math.random() * 3), ph: Math.random() * 10 });
     }
-    const spot: WaterSpot = { x, y, r, grow: 0, dashes };
-    const w = this.waters.find((o) => o.drain <= 0 && o.spots.some((sp) => Phaser.Math.Distance.Between(sp.x, sp.y, x, y) < sp.r + r * 0.6));
-    if (w) {
-      w.spots.push(spot);
-      w.amount += amount;
-      w.t = WATER_LIFE;
+    const spot: WaterSpot = { x, y, r, targetR: r, amount, grow: 0, drain: 0, dead: false, dashes };
+    const touching = this.waters.filter((w) => liveSpots(w).some((sp) => spotsTouch(sp, spot)));
+    if (!touching.length) {
+      const w: Water = { spots: [spot], t: WATER_LIFE, ph: Math.random() * 10, label: null, labelW: 0 };
+      this.waters.push(w);
       this.refreshWaterLabel(w);
-    } else {
-      const nw: Water = { spots: [spot], amount, t: WATER_LIFE, drain: 0, ph: Math.random() * 10, label: null, labelW: 0 };
+      return;
+    }
+    const [main, ...rest] = touching;
+    for (const o of rest) {
+      main.spots.push(...o.spots);
+      o.label?.destroy();
+    }
+    this.waters = this.waters.filter((w) => !rest.includes(w));
+    main.spots.push(spot);
+    main.t = WATER_LIFE;
+    this.refreshWaterLabel(main);
+  }
+
+  /** 반응에 물을 n개 씀: (x, y)에서 가까운 원부터. 다 쓴 원은 마르고, 덜 쓴 원은 작아진다 */
+  private consumeWater(w: Water, x: number, y: number, n: number): void {
+    // 원 가장자리까지 거리 (안에 있으면 음수) → 떨어진 자리의 원이 먼저
+    const edge = (sp: WaterSpot) => Math.hypot(x - sp.x, (y - sp.y) / WATER_SQUASH) - sp.r;
+    let need = n;
+    for (const sp of liveSpots(w).sort((a, b) => edge(a) - edge(b))) {
+      if (need <= 0) break;
+      const take = Math.min(need, sp.amount);
+      sp.amount -= take;
+      need -= take;
+      if (sp.amount <= 0) sp.drain = WATER_DRAIN;
+      else sp.targetR = waterRadius(sp.amount);
+      this.s.vfx.spark(sp.x, sp.y - 4, E32.white, 8, 40, 60);
+    }
+    this.splitWater(w);
+  }
+
+  /** 가운데 물이 빠져서 끊기면 각자 다른 웅덩이로 나눔 */
+  private splitWater(w: Water): void {
+    const live = liveSpots(w);
+    const groups: WaterSpot[][] = [];
+    const seen = new Set<WaterSpot>();
+    for (const start of live) {
+      if (seen.has(start)) continue;
+      const group: WaterSpot[] = [];
+      const stack = [start];
+      seen.add(start);
+      while (stack.length) {
+        const sp = stack.pop()!;
+        group.push(sp);
+        for (const o of live) {
+          if (!seen.has(o) && spotsTouch(sp, o)) {
+            seen.add(o);
+            stack.push(o);
+          }
+        }
+      }
+      groups.push(group);
+    }
+    for (const g of groups.slice(1)) {
+      w.spots = w.spots.filter((sp) => !g.includes(sp));
+      const nw: Water = { spots: g, t: w.t, ph: Math.random() * 10, label: null, labelW: 0 };
       this.waters.push(nw);
       this.refreshWaterLabel(nw);
     }
+    this.refreshWaterLabel(w);
   }
 
   private refreshWaterLabel(w: Water): void {
     w.label?.destroy();
+    w.label = null;
+    const amount = waterAmount(w);
+    if (amount <= 0) return;
     // 파란 물 위에서도 읽히게 밝은 청록
-    const l = this.makeLabel([term(`${coef(w.amount)}H2O`, E32.cyan)]);
+    const l = this.makeLabel([term(`${coef(amount)}H2O`, E32.cyan)]);
     w.label = l.c;
     w.labelW = l.w;
   }
 
   private updateWaters(dt: number): void {
     for (const w of this.waters) {
-      for (const sp of w.spots) sp.grow = Math.min(1, sp.grow + dt / WATER_GROW);
-      if (w.drain > 0) {
-        w.drain = Math.max(0, w.drain - dt);
-        if (w.drain <= 0) w.t = 0;
-        continue;
+      for (const sp of w.spots) {
+        sp.grow = Math.min(1, sp.grow + dt / WATER_GROW);
+        sp.r += (sp.targetR - sp.r) * Math.min(1, dt * 8);
+        if (sp.drain > 0) {
+          sp.drain -= dt;
+          if (sp.drain <= 0) sp.dead = true;
+        }
       }
-      w.t -= dt;
+      w.spots = w.spots.filter((sp) => !sp.dead);
+      if (liveSpots(w).length) w.t -= dt;
     }
-    for (const w of this.waters) if (w.t <= 0) w.label?.destroy();
-    this.waters = this.waters.filter((w) => w.t > 0);
+    const gone = (w: Water) => w.t <= 0 || w.spots.length === 0;
+    for (const w of this.waters) if (gone(w)) w.label?.destroy();
+    this.waters = this.waters.filter((w) => !gone(w));
   }
 
-  /** 둥근 물웅덩이: 테두리 → 물 → 윗쪽 밝은 띠 → 물결·반짝임. 겹친 웅덩이는 테두리를 먼저 다 그려서 하나로 이어 보이게 */
+  /** 둥근 물웅덩이: 테두리 → 물 → 윗쪽 밝은 띠 → 물결·반짝임. 닿은 원들은 테두리를 먼저 다 그려서 하나로 이어 보이게 */
   private drawWaters(time: number): void {
     const g = this.wg;
     g.clear();
     for (const w of this.waters) {
-      const k = w.drain > 0 ? w.drain / WATER_DRAIN : Math.min(1, w.t / 1.5);
-      const size = (sp: WaterSpot) => Math.max(0, sp.grow * (w.drain > 0 ? k : 0.6 + 0.4 * k));
+      const k = Math.min(1, w.t / 1.5);
+      const size = (sp: WaterSpot) => Math.max(0, sp.grow * (sp.drain > 0 ? sp.drain / WATER_DRAIN : 0.6 + 0.4 * k));
       const ell = (sp: WaterSpot, pad: number, dy = 0, shrink = 1) => {
         const s = size(sp) * shrink;
         const ww = Math.round(sp.r * 2 * s) + pad * 2;
@@ -622,11 +696,12 @@ export class ChemSystem {
       for (const sp of w.spots) ell(sp, 0, -Math.round(sp.r * 0.3), 0.55);
       g.fillStyle(E32.blue, 1);
       for (const sp of w.spots) ell(sp, 0, -Math.round(sp.r * 0.18), 0.55);
-      if (w.drain > 0) continue;
+      const live = liveSpots(w);
       // 표면의 짧은 물결 (반짝이며 살짝 흔들림)
-      for (const sp of w.spots) {
+      for (const sp of live) {
         const sz = size(sp);
-        for (const d of sp.dashes) {
+        const n = Math.round(sp.r / 2.5);
+        for (const d of sp.dashes.slice(0, n)) {
           const a = 0.25 + 0.3 * Math.sin(time * 2.2 + d.ph);
           if (a <= 0.05) continue;
           g.fillStyle(E32.cyan, a);
@@ -636,7 +711,7 @@ export class ChemSystem {
         }
       }
       // 물결: 가운데서 퍼지는 고리
-      for (const sp of w.spots) {
+      for (const sp of live) {
         const p = ((time * 0.7 + w.ph + sp.x * 0.01) % 1 + 1) % 1;
         const rr = sp.r * size(sp) * (0.25 + 0.65 * p);
         g.lineStyle(1, E32.cyan, 0.5 * (1 - p));
@@ -649,10 +724,11 @@ export class ChemSystem {
           g.fillRect(Math.round(sp.x + sp.r * 0.3), Math.round(sp.y - sp.r * WATER_SQUASH * 0.2), 1, 1);
         }
       }
-      if (w.label) {
-        const a = w.spots[0];
-        const cx = w.spots.reduce((t, sp) => t + sp.x, 0) / w.spots.length;
-        w.label.setPosition(Math.round(cx - w.labelW / 2), Math.round(a.y - 6)).setAlpha(Math.min(1, w.t / 1.5) * a.grow);
+      if (w.label && live.length) {
+        const cx = live.reduce((t, sp) => t + sp.x, 0) / live.length;
+        const cy = live.reduce((t, sp) => t + sp.y, 0) / live.length;
+        const grow = Math.min(...live.map((sp) => sp.grow));
+        w.label.setPosition(Math.round(cx - w.labelW / 2), Math.round(cy - 6 + bob(time, w.ph))).setAlpha(k * grow);
       }
     }
   }
@@ -661,7 +737,7 @@ export class ChemSystem {
     const img = this.s.add.image(Math.round(x), Math.round(y), 'na_lump').setOrigin(0.5, 1).setDepth(DEPTH.actor + y);
     const l = this.makeLabel([term('Na', CHEM_COLOR.Na)]);
     l.c.setPosition(Math.round(x - l.w / 2), Math.round(y - 18));
-    const lump: Lump = { x, y, t: LUMP_LIFE, fizz: -1, img, label: l.c };
+    const lump: Lump = { x, y, t: LUMP_LIFE, fizz: -1, img, label: l.c, labelW: l.w, ph: Math.random() * 10 };
     this.lumps.push(lump);
     return lump;
   }
@@ -716,8 +792,9 @@ export class ChemSystem {
         g.fillStyle(col, 0.14 * fade);
         g.fillCircle(px - 1, py - 1, Math.max(1, rr - 3));
       });
-      c.label?.setPosition(Math.round(c.x - c.labelW / 2), Math.round(c.y - 34)).setAlpha(fade);
+      c.label?.setPosition(Math.round(c.x - c.labelW / 2), Math.round(c.y - 34 + bob(time, c.puffs[0].ph))).setAlpha(fade);
     }
+    for (const l of this.lumps) l.label.setPosition(Math.round(l.x - l.labelW / 2), Math.round(l.y - 18 + bob(time, l.ph)));
   }
 
   emitLights(): void {
@@ -727,6 +804,6 @@ export class ChemSystem {
       L.add(c.x, c.y - 9, 34, this.hasO(c.shown) && !this.hasH(c.shown) ? E32.red : E32.silver, 0.25);
     }
     for (const l of this.lumps) if (l.fizz >= 0) L.add(l.x, l.y - 2, 70, E32.amber, 0.9);
-    for (const w of this.waters) for (const sp of w.spots) L.add(sp.x, sp.y, sp.r * 2.4, E32.blue, 0.5 * sp.grow);
+    for (const w of this.waters) for (const sp of liveSpots(w)) L.add(sp.x, sp.y, sp.r * 2.4, E32.blue, 0.5 * sp.grow);
   }
 }
