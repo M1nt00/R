@@ -24,12 +24,14 @@ export function parseFormula(f: string): FormulaRun[] {
   return runs;
 }
 
-export type FormulaSize = 'big' | 'small';
+export type FormulaSize = 'big' | 'small' | 'slot';
 
 /** 픽셀 폰트는 설계 크기의 정수배만: 큰 것 24/16px, 작은 것 10/8px */
 const STYLE: Record<FormulaSize, { main: [string, number]; sub: [string, number]; subDy: number; gap: number; shadow: number }> = {
   big: { main: [FONT_L, 24], sub: [FONT_S, 16], subDy: 13, gap: 6, shadow: 2 },
   small: { main: [FONT_M, 10], sub: [FONT_S, 8], subDy: 6, gap: 3, shadow: 1 },
+  /** HUD 시약 슬롯 */
+  slot: { main: [FONT_L, 12], sub: [FONT_S, 8], subDy: 7, gap: 2, shadow: 1 },
 };
 
 export interface FormulaText {

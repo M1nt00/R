@@ -45,6 +45,8 @@ export class UIScene extends Phaser.Scene {
   private chemRuns: FormulaText[] = [];
   /** 지금 떠 있는 반응식의 마지막 항 (다음 반응식이 그 자리에서 이어지게) */
   private chemTail: { key: string; abs: number }[] = [];
+  /** 시약 슬롯 글자 (CO₂처럼 아래 첨자가 있어서 화학식으로 그림) */
+  private reagentSyms: { c: Phaser.GameObjects.Container; w: number }[] = [];
   private chemGen = 0;
 
   constructor() {
@@ -109,7 +111,10 @@ export class UIScene extends Phaser.Scene {
     this.hud.add(this.icon(76, 23, 'essence'));
     REAGENTS.forEach((rg, i) => {
       this.slotLayer.add(t(`rkey${i}`, 0, 0, 8, toCss(E32.steel)));
-      this.slotLayer.add(t(`rsym${i}`, 0, 0, 12, toCss(CHEM_COLOR[rg])).setOrigin(0.5));
+      const sym = formulaTexts(this, rg, toCssColor(CHEM_COLOR[rg]), 'slot');
+      const sc = this.add.container(0, 0, sym.texts.map((ft) => ft.t));
+      this.slotLayer.add(sc);
+      this.reagentSyms.push({ c: sc, w: sym.w });
     });
     this.banner = this.txt(W / 2, 70, '', 12).setOrigin(0.5).setAlpha(0);
 
@@ -216,7 +221,7 @@ export class UIScene extends Phaser.Scene {
         c.add(this.txt(W / 2, 70, '원소 저글러', 24).setOrigin(0.5));
         REAGENTS.forEach((rg, i) => {
           const { texts, w } = formulaTexts(this, rg, toCssColor(CHEM_COLOR[rg]), 'big');
-          const sym = this.add.container(Math.round(W / 2 - 48 + i * 48 - w / 2), 92);
+          const sym = this.add.container(Math.round(W / 2 + (i - (REAGENTS.length - 1) / 2) * 68 - w / 2), 92);
           for (const ft of texts) sym.add(ft.t);
           c.add(sym);
           this.tweens.add({ targets: sym, y: 88, yoyo: true, repeat: -1, duration: 700, delay: i * 140, ease: 'Stepped', easeParams: [4] });
@@ -224,7 +229,8 @@ export class UIScene extends Phaser.Scene {
         c.add(this.txt(W / 2, 132, '시약을 던져서 실제 화학 반응을 일으켜요', 10, toCss(E32.silver)).setOrigin(0.5));
         const lines = [
           'WASD 이동 · 마우스 조준 · 좌클릭(꾹) 화염 방사 · 스페이스 구르기',
-          '1 수소(H) · 2 산소(O) · 3 나트륨(Na) 던지기 · Q 포션 · E 상호작용',
+          '1 수소(H) · 2 산소(O) · 3 나트륨(Na) · 4 이산화탄소 던지기',
+          'Q 포션 · E 상호작용',
         ];
         c.add(this.txt(W / 2, 160, lines.join('\n'), 8, toCss(E32.white)).setOrigin(0.5).setAlign('center'));
         const go = this.txt(W / 2, 204, '클릭해서 시작', 12, toCss(E32.yellow)).setOrigin(0.5);
@@ -468,7 +474,7 @@ export class UIScene extends Phaser.Scene {
           '[ 조작 ]',
           'WASD 이동 · 마우스 조준',
           '좌클릭(꾹) 화염 방사 (불씨, 직접 피해 없음)',
-          '1 수소(H) · 2 산소(O) · 3 나트륨(Na) 던지기',
+          '1 수소 · 2 산소 · 3 나트륨 · 4 이산화탄소 던지기',
           '스페이스 구르기 · Q 포션 · E 상호작용',
           'H/ESC 일시정지 · M 소리',
           '',
@@ -477,10 +483,12 @@ export class UIScene extends Phaser.Scene {
           '· 기체는 떨어진 자리에 구름으로 남아요',
           '· 같은 구름 안에 던져야 합쳐져요',
           '· 수소와 산소는 섞기만 하면 그대로예요',
-          '· 수소에 불이 붙으면 언제나 물이 남아요',
-          '  산소가 섞여 있으면 쾅, 없으면 불덩이',
-          '· 쾅·불덩이는 옆 수소 구름에 옮겨붙어요',
-          '· 나트륨은 물에 닿으면 쾅 + 노란 불덩이',
+          '· 수소에 불이 붙으면 터지고 물이 남아요',
+          '  산소가 섞여 있으면 큰 폭발, 없으면 약한 폭발',
+          '· 폭발은 옆 수소 구름에 옮겨붙어요',
+          '· 나트륨은 물에 닿으면 폭발해요',
+          '· 빛이 드는 화분에 물 + 이산화탄소 → 광합성',
+          '  포도당 열매를 먹으면 HP 회복',
         ];
         c.add(this.txt(22, 34, left.join('\n'), 8));
         // 반응식은 아래 첨자가 있는 화학식으로
@@ -489,12 +497,12 @@ export class UIScene extends Phaser.Scene {
         const plus = { f: '+', color: CHEM_COLOR.op, op: true };
         const arrow = { f: '→', color: E32.silver, op: true };
         const eqs: [FormulaPiece[], string][] = [
-          [[P('H', CHEM_COLOR.H), plus, P('H', CHEM_COLOR.H), arrow, P('H2', CHEM_COLOR.H)], '저절로'],
-          [[P('O', CHEM_COLOR.O), plus, P('O', CHEM_COLOR.O), arrow, P('O2', CHEM_COLOR.O)], '저절로'],
-          [[P('2H2', CHEM_COLOR.H), plus, P('O2', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '불 → 쾅 (한 방 + 넉백) + 물'],
-          [[P('H2', CHEM_COLOR.H), plus, P('O', CHEM_COLOR.O), arrow, P('H2O', CHEM_COLOR.water)], '불 → 쾅 + 물'],
-          [[P('2H2', CHEM_COLOR.H), plus, P('O2(공기)', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '불 → 불덩이 (몇 초 화상) + 물'],
-          [[P('2H2O', CHEM_COLOR.water), plus, P('2Na', CHEM_COLOR.Na), arrow, P('2NaOH', CHEM_COLOR.naoh), plus, P('H2', CHEM_COLOR.H)], '쾅 + 노란 불덩이, 물은 1 줄어듦'],
+          [[P('H', CHEM_COLOR.H), plus, P('H', CHEM_COLOR.H), arrow, P('H2', CHEM_COLOR.H)], '저절로 (산소 원자 둘도 같은 식)'],
+          [[P('2H2', CHEM_COLOR.H), plus, P('O2(공기)', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '수소만 + 불 → 약한 폭발 + 물'],
+          [[P('2H2', CHEM_COLOR.H), plus, P('O2', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '산소 섞고 불 → 큰 폭발 + 물'],
+          [[P('2H2O', CHEM_COLOR.water), plus, P('2Na', CHEM_COLOR.Na), arrow, P('2NaOH', CHEM_COLOR.naoh), plus, P('H2', CHEM_COLOR.H)], '폭발, 물은 1 줄어듦'],
+          [[P('6CO2', CHEM_COLOR.CO2), plus, P('6H2O', CHEM_COLOR.water), arrow, P('C6H12O6', CHEM_COLOR.glucose), plus, P('6O2', CHEM_COLOR.O)], '빛 드는 화분 → 포도당 열매 + 산소'],
+          [[P('C6H12O6', CHEM_COLOR.glucose), plus, P('6O2', CHEM_COLOR.O), arrow, P('6CO2', CHEM_COLOR.CO2), plus, P('6H2O', CHEM_COLOR.water)], '열매 먹기 (세포 호흡) → HP +25'],
         ];
         eqs.forEach(([pieces, note], i) => {
           const y = 46 + i * 25;
@@ -602,7 +610,8 @@ export class UIScene extends Phaser.Scene {
         gs.fillRect(x + 1, y + 1, SLOT - 2, Math.round((SLOT - 2) * Math.min(1, throwCd / THROW_CD)));
       }
       T[`rkey${i}`].setPosition(x + 2, y + 1).setText(REAGENT_KEY[rg]);
-      T[`rsym${i}`].setPosition(x + SLOT / 2, y + SLOT / 2 + 2).setText(rg);
+      const sym = this.reagentSyms.at(i);
+      sym?.c.setPosition(Math.round(x + SLOT / 2 - sym.w / 2), y + 7);
     });
     const reagentW = REAGENTS.length * (SLOT + GAP) - GAP;
     // 캐릭터가 UI 뒤에 있으면 반투명 (화면 좌표 기준)
