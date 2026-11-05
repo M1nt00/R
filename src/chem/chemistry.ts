@@ -9,12 +9,13 @@ import { formulaLine, joinTerms } from './formula';
  * 화학 반응 시험판: 수소(H)·산소(O)·나트륨(Na)을 던지고, 불(화염방사기)로 불을 붙인다.
  *   H + H          → H₂            저절로 (같은 구름 안에서)
  *   O + O          → O₂            저절로
- *   수소와 산소는 섞기만 하면 아무 일도 없고, 불씨가 닿아야 터지면서 물이 된다:
- *   2H₂ + O₂       → 2H₂O          큰 폭발 + 물 2배
- *   H₂ + O         → H₂O           폭발 + 물
- *   2H₂ + O₂(공기) → 2H₂O          던진 산소가 없으면 공기 중 산소로 타서 작게 펑 (물은 수증기로 날아감)
- *   2H₂O + 2Na     → 2NaOH + H₂    물에 나트륨 → 지글거리다 그 열로 수소에 불이 붙어 폭발 (수소는 타서 안 남음)
- * 폭발은 근처 수소 구름에 옮겨붙는다 (연쇄 폭발).
+ *   수소와 산소는 섞기만 하면 아무 일도 없고, 불씨가 닿아야 탄다. 수소가 타면 언제나 물이 남는다:
+ *   2H₂ + O₂ / H₂ + O  → 물     산소가 섞여 있으면 한순간에 "쾅" (한 방 + 넉백)
+ *   2H₂ + O₂(공기)     → 2H₂O   산소 없이 공기로 타면 "불덩이" (몇 초 동안 넓게 화상, 다 타면 물)
+ *   수소가 더 많으면 쾅 다음에 남은 수소가 불덩이로 이어서 탄다
+ *   2H₂O + 2Na     → 2NaOH + H₂    물에 나트륨 → 지글거리다 쾅 + 생긴 수소가 노란 불덩이로 탐
+ *                                  (물 2개를 쓰고 불덩이에서 1개가 돌아옴 → 결과적으로 1 줄어듦)
+ * 쾅·불덩이는 근처 수소 구름에 옮겨붙는다 (연쇄).
  * 기체는 떨어진 자리에 구름으로 남고, 같은 구름 안에 던져야 합쳐진다.
  * 화면 위 화학식은 무언가와 합쳐질 때만 뜨고 잠시 뒤 사라진다 (땅의 구름·물·나트륨 라벨은 남음).
  */
@@ -95,8 +96,38 @@ const CHAIN_DELAY = 0.12;
 const NA_BURN_EQ_DELAY = 0.6;
 /** 연달아 일어나는 반응 사이: 앞 반응 결과를 보여주는 시간 */
 const CHAIN_GAP = 0.75;
-const NA_BLAST_R = 42;
-const NA_DAMAGE = 35;
+/** 나트륨 반응의 쾅 (쿨롱 폭발): 뒤이어 노란 불덩이 */
+const NA_BLAST_R = 32;
+const NA_DAMAGE = 25;
+/** 쾅: 던진 산소와 반응한 수소(= 생긴 물) 양에 비례 */
+const boomRadius = (water: number) => Math.min(56, 26 + 5 * water);
+const boomDamage = (water: number) => 16 + 8 * water;
+/** 불덩이 화상 피해 간격 */
+const FIREBALL_TICK = 0.35;
+
+type FireKind = 'hydrogen' | 'sodium';
+/** 불꽃 색 [가장 뜨거운 속, 가운데, 바깥] */
+const FIRE_COLORS: Record<FireKind, [number, number, number]> = {
+  // 수소 불꽃은 실제로 거의 안 보이는 옅은 파랑
+  hydrogen: [E32.white, E32.cyan, E32.blue],
+  // 나트륨이 섞인 불꽃은 노랑 (나트륨 원자가 내는 빛)
+  sodium: [E32.white, E32.yellow, E32.amber],
+};
+
+interface Fireball {
+  x: number;
+  y: number;
+  r: number;
+  t: number;
+  life: number;
+  tickT: number;
+  sfxT: number;
+  damage: number;
+  /** 다 타고 나서 남는 물 */
+  water: number;
+  kind: FireKind;
+  tongues: { ox: number; ph: number }[];
+}
 
 interface Flask {
   r: Reagent;
@@ -250,9 +281,12 @@ export class ChemSystem {
   private clouds: Cloud[] = [];
   private lumps: Lump[] = [];
   private waters: Water[] = [];
+  private fireballs: Fireball[] = [];
   private readonly g: Phaser.GameObjects.Graphics;
   /** 물웅덩이는 바닥 높이 (캐릭터 아래) */
   private readonly wg: Phaser.GameObjects.Graphics;
+  /** 불덩이 (더하기 블렌드로 달아오르게) */
+  private readonly fg: Phaser.GameObjects.Graphics;
   private readonly keys: Record<Reagent, Phaser.Input.Keyboard.Key>;
 
   constructor(private readonly s: RoomScene) {
@@ -260,6 +294,7 @@ export class ChemSystem {
     // 조명 위에 그려서 어두운 방에서도 기체가 보이게
     this.g = s.add.graphics().setDepth(DEPTH.vfx - 10);
     this.wg = s.add.graphics().setDepth(DEPTH.terrain + 0.5);
+    this.fg = s.add.graphics().setDepth(DEPTH.vfx - 5).setBlendMode(Phaser.BlendModes.ADD);
     const kb = s.input.keyboard!;
     this.keys = { H: kb.addKey(KEY_CODE.H), O: kb.addKey(KEY_CODE.O), Na: kb.addKey(KEY_CODE.Na) };
     this.emit({ type: 'clear' });
@@ -297,6 +332,7 @@ export class ChemSystem {
     this.updateClouds(dt);
     this.updateLumps(dt);
     this.updateWaters(dt);
+    this.updateFireballs(dt);
   }
 
   private throwReagent(r: Reagent): void {
@@ -427,43 +463,35 @@ export class ChemSystem {
     return c.burning <= 0 && c.species.includes('H2');
   }
 
-  /** 화염방사기: 부채꼴(원점 x, y · 방향 angle · 거리 range · 반각 half)에 닿은 수소 구름에 불이 붙는다 */
-  igniteCone(x: number, y: number, angle: number, range: number, half: number): void {
+  /** 불꽃 입자(공중, 손 높이)가 닿은 수소 구름에 불이 붙는다. 구름은 바닥에서 9px 떠 있음 */
+  igniteAt(x: number, y: number): void {
     for (const c of this.clouds) {
-      if (!this.flammable(c)) continue;
-      const d = Phaser.Math.Distance.Between(x, y, c.x, c.y);
-      if (d > range + CLOUD_R) continue;
-      const da = Math.abs(Phaser.Math.Angle.Wrap(Math.atan2(c.y - y, c.x - x) - angle));
-      if (d > CLOUD_R && da > half + Math.atan2(CLOUD_R, d)) continue;
-      this.ignite(c);
+      if (this.flammable(c) && Math.hypot(x - c.x, y - (c.y - 9)) <= CLOUD_R) this.ignite(c);
     }
   }
 
-  /** 불이 붙음: 던져 넣은 산소와 먼저 반응하고, 남은 수소는 공기 중 산소로 탄다. 잠깐 타다가 터짐 */
+  /** 불이 붙음: 잠깐 불길이 번진 뒤, 던져 넣은 산소와 섞인 수소는 쾅, 남은 수소는 공기로 타서 불덩이. 어느 쪽이든 물이 남음 */
   private ignite(c: Cloud): void {
     if (!this.flammable(c)) return;
+    const s = this.s;
     const sp = c.species;
-    let water = 0;
-    let burned = 0;
+    let boom = 0;
     let usedO2 = false;
     let usedO = false;
     while (count(sp, 'H2') >= 2 && count(sp, 'O2') >= 1) {
       take(sp, 'H2', 2);
       take(sp, 'O2', 1);
-      water += 2;
-      burned += 2;
+      boom += 2;
       usedO2 = true;
     }
     while (count(sp, 'H2') >= 1 && count(sp, 'O') >= 1) {
       take(sp, 'H2', 1);
       take(sp, 'O', 1);
-      water += 1;
-      burned += 1;
+      boom += 1;
       usedO = true;
     }
-    const air = count(sp, 'H2');
-    take(sp, 'H2', air);
-    burned += air;
+    const fire = count(sp, 'H2');
+    take(sp, 'H2', fire);
     const eq = usedO2
       ? { lhs: [term('2H2', CHEM_COLOR.H), term('O2', CHEM_COLOR.O)], rhs: [term('2H2O', CHEM_COLOR.water)] }
       : usedO
@@ -473,19 +501,28 @@ export class ChemSystem {
     const after = [...sp];
     const seq = ++c.seq;
     c.burning = IGNITE_FUSE;
-    c.busyUntil = Math.max(c.busyUntil, this.s.gameTime + IGNITE_FUSE + 0.1);
+    c.busyUntil = Math.max(c.busyUntil, s.gameTime + IGNITE_FUSE + 0.1);
     playSfx('ignite');
-    this.s.scheduler.after(IGNITE_FUSE, () => {
+    s.scheduler.after(IGNITE_FUSE, () => {
       c.burning = 0;
       this.showSpecies(c, after, seq);
-      // 던진 산소와 섞여 있었으면 크게 터지고 물이 남음, 공기로만 탔으면 작게 펑 (물은 수증기로 날아감)
-      if (water > 0) {
-        this.blast(c.x, c.y - 4, Math.min(60, 30 + 5 * water), 16 + 8 * water, E32.yellow, 'kaboom');
-        this.s.scheduler.after(0.15, () => this.makeWater(c.x, c.y, water));
-      } else {
-        this.blast(c.x, c.y - 4, Math.min(40, 20 + 3 * burned), 6 + 3 * burned, E32.orange, 'boom');
-        this.s.vfx.spark(c.x, c.y - 8, E32.white, 8, 30, 70);
-      }
+      const { x, y } = c;
+      if (boom > 0) {
+        this.blast(x, y - 4, boomRadius(boom), boomDamage(boom), E32.yellow, 'kaboom');
+        s.scheduler.after(0.15, () => this.makeWater(x, y, boom));
+        if (fire > 0) {
+          s.scheduler.after(0.1, () => this.startFireball(x, y, fire, 'hydrogen', fire));
+          this.showAfter(NA_BURN_EQ_DELAY, AIR_BURN);
+        }
+      } else this.startFireball(x, y, fire, 'hydrogen', fire);
+    });
+  }
+
+  /** 조금 뒤에 이어서 보여줄 반응식 (그 사이 다른 반응이 떴으면 생략) */
+  private showAfter(delay: number, eq: { lhs: ChemTerm[]; rhs: ChemTerm[] }): void {
+    const mark = this.shownCount;
+    this.s.scheduler.after(delay, () => {
+      if (this.shownCount === mark) this.emit({ type: 'equation', ...eq, revealAt: IGNITE_FUSE });
     });
   }
 
@@ -512,7 +549,7 @@ export class ChemSystem {
     }
   }
 
-  /** 폭발로 생긴 물웅덩이 */
+  /** 수소가 타고 남은 물웅덩이 */
   private makeWater(x: number, y: number, amount: number): void {
     const s = this.s;
     const r = waterRadius(amount);
@@ -541,16 +578,96 @@ export class ChemSystem {
     const s = this.s;
     const { x, y } = lump;
     this.removeLump(lump);
-    // 반응식대로 물은 2H₂O만 쓴다 (나트륨이 떨어진 자리부터). 남은 물은 줄어든 채로 남는다
+    // 반응식대로 물은 2H₂O만 쓴다 (나트륨이 떨어진 자리부터)
     const w = this.waterAt(x, y, 4);
-    if (w) this.consumeWater(w, x, y, 2);
+    const used = w ? this.consumeWater(w, x, y, 2) : 0;
     s.vfx.spark(x, y, E32.cyan, 18, 150, 110);
     this.blast(x, y, NA_BLAST_R, NA_DAMAGE, E32.amber, 'kaboom');
-    // 이어서 "생긴 수소가 공기 중 산소로 탔다"를 보여줌 (그 사이 다른 반응이 떴으면 생략)
-    const mark = this.shownCount;
-    s.scheduler.after(NA_BURN_EQ_DELAY, () => {
-      if (this.shownCount === mark) this.emit({ type: 'equation', ...AIR_BURN, revealAt: IGNITE_FUSE });
-    });
+    // 생긴 수소(H₂)가 그 열로 바로 타서 노란 불덩이 → 다 타면 물 1이 돌아옴 (물 2개를 썼을 때)
+    this.startFireball(x, y, 1, 'sodium', Math.floor(used / 2));
+    this.showAfter(NA_BURN_EQ_DELAY, AIR_BURN);
+  }
+
+  // ───────────────────────── 불덩이 ─────────────────────────
+
+  /** 불덩이: 산소 없이 공기로 타는 수소. 피어올라 몇 초 동안 타며 화상, 다 타면 물이 남음 */
+  private startFireball(x: number, y: number, h2: number, kind: FireKind, water: number): void {
+    const s = this.s;
+    const r = Math.min(44, 24 + 5 * h2);
+    const tongues = Array.from({ length: 16 }, (_, i) => ({ ox: (Math.random() - 0.5) * 2, ph: i / 16 + Math.random() * 0.05 }));
+    this.fireballs.push({ x, y, r, t: 0, life: Math.min(3.5, 2.2 + 0.4 * h2), tickT: 0.1, sfxT: 0, damage: 2 + h2, water, kind, tongues });
+    const col = FIRE_COLORS[kind][1];
+    s.vfx.ring(x, y, 4, r, col, 0.3, 2);
+    s.vfx.glow(x, y - 10, r * 1.2, col, 0.35);
+    s.lighting.flash(x, y, r * 4, col, 0.4);
+    s.shake(0.1, 0.004);
+    playSfx('fireball');
+  }
+
+  /** 피어오를 때 커지고, 끝날 무렵 사그라듦 */
+  private fireSize(f: Fireball): number {
+    const grow = Math.min(1, f.t / 0.2);
+    const end = Math.max(0, Math.min(1, (f.life - f.t) / 0.6));
+    return grow * (0.4 + 0.6 * end);
+  }
+
+  private updateFireballs(dt: number): void {
+    const s = this.s;
+    for (const f of this.fireballs) {
+      f.t += dt;
+      const rr = f.r * this.fireSize(f);
+      const [, mid, outer] = FIRE_COLORS[f.kind];
+      f.tickT -= dt;
+      if (f.tickT <= 0) {
+        f.tickT = FIREBALL_TICK;
+        for (const a of s.combat.inCircle(f.x, f.y, rr, 'enemy')) {
+          s.combat.hit(a, { damage: f.damage * s.player.atkMult, isReaction: true, reactionId: 'fireball', color: mid });
+        }
+      }
+      // 불덩이에 닿은 수소 구름에도 불이 붙음
+      for (const c of this.clouds) {
+        if (this.flammable(c) && Phaser.Math.Distance.Between(c.x, c.y, f.x, f.y) <= rr + CLOUD_R) this.ignite(c);
+      }
+      if (Math.random() < dt * 25) s.vfx.spark(f.x + (Math.random() - 0.5) * rr, f.y - 4, Math.random() < 0.5 ? mid : outer, 1, 30, 60);
+      f.sfxT -= dt;
+      if (f.sfxT <= 0) {
+        f.sfxT = 0.3;
+        playSfx('flame');
+      }
+      if (f.t >= f.life) {
+        s.vfx.spark(f.x, f.y - 10, E32.white, 8, 25, 40);
+        // 수소가 다 타고 나면 물이 남는다
+        if (f.water > 0) this.makeWater(f.x, f.y, f.water);
+      }
+    }
+    this.fireballs = this.fireballs.filter((f) => f.t < f.life);
+  }
+
+  /** 혀처럼 날름거리며 위로 올라가다 작아지는 불꽃들 + 바닥에 비친 불빛 */
+  private drawFireballs(time: number): void {
+    const g = this.fg;
+    g.clear();
+    for (const f of this.fireballs) {
+      const r = f.r * this.fireSize(f);
+      if (r < 1) continue;
+      const [hot, mid, outer] = FIRE_COLORS[f.kind];
+      g.fillStyle(mid, 0.18);
+      g.fillEllipse(Math.round(f.x), Math.round(f.y), Math.round(r * 2), Math.round(r * 1.2));
+      for (const tg of f.tongues) {
+        const k = (time * 1.6 + tg.ph) % 1;
+        const px = Math.round(f.x + tg.ox * r * 0.6 * (1 - k * 0.6) + Math.sin(time * 9 + tg.ph * 40) * 2);
+        const py = Math.round(f.y - 4 - k * r * 1.1);
+        const tr = Math.max(1, Math.round(r * 0.36 * (1 - k * 0.8) * (0.85 + 0.25 * Math.sin(time * 14 + tg.ph * 30))));
+        g.fillStyle(outer, 0.35);
+        g.fillCircle(px, py, tr);
+        g.fillStyle(mid, 0.45);
+        g.fillCircle(px, py + 1, Math.max(1, Math.round(tr * 0.65)));
+        if (k < 0.5) {
+          g.fillStyle(hot, 0.55);
+          g.fillCircle(px, py + 1, Math.max(1, Math.round(tr * 0.35)));
+        }
+      }
+    }
   }
 
   // ───────────────────────── 구름 (기체) ─────────────────────────
@@ -679,7 +796,7 @@ export class ChemSystem {
   }
 
   /** 반응에 물을 n개 씀: (x, y)에서 가까운 원부터. 다 쓴 원은 마르고, 덜 쓴 원은 작아진다 */
-  private consumeWater(w: Water, x: number, y: number, n: number): void {
+  private consumeWater(w: Water, x: number, y: number, n: number): number {
     // 원 가장자리까지 거리 (안에 있으면 음수) → 떨어진 자리의 원이 먼저
     const edge = (sp: WaterSpot) => Math.hypot(x - sp.x, (y - sp.y) / WATER_SQUASH) - sp.r;
     let need = n;
@@ -693,6 +810,7 @@ export class ChemSystem {
       this.s.vfx.spark(sp.x, sp.y - 4, E32.white, 8, 40, 60);
     }
     this.splitWater(w);
+    return n - need;
   }
 
   /** 가운데 물이 빠져서 끊기면 각자 다른 웅덩이로 나눔 */
@@ -856,6 +974,7 @@ export class ChemSystem {
 
   draw(time: number): void {
     this.drawWaters(time);
+    this.drawFireballs(time);
     const g = this.g;
     g.clear();
     for (const c of this.clouds) {
@@ -893,5 +1012,6 @@ export class ChemSystem {
     }
     for (const l of this.lumps) if (l.fizz >= 0) L.add(l.x, l.y - 2, 70, E32.amber, 0.9);
     for (const w of this.waters) for (const sp of liveSpots(w)) L.add(sp.x, sp.y, sp.r * 2.4, E32.blue, 0.5 * sp.grow);
+    for (const f of this.fireballs) L.add(f.x, f.y - 10, f.r * 2.6 * this.fireSize(f), FIRE_COLORS[f.kind][1], 0.9);
   }
 }

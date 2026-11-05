@@ -467,7 +467,7 @@ export class UIScene extends Phaser.Scene {
         const left = [
           '[ 조작 ]',
           'WASD 이동 · 마우스 조준',
-          '좌클릭(꾹) 화염 방사',
+          '좌클릭(꾹) 화염 방사 (불씨, 직접 피해 없음)',
           '1 수소(H) · 2 산소(O) · 3 나트륨(Na) 던지기',
           '스페이스 구르기 · Q 포션 · E 상호작용',
           'H/ESC 일시정지 · M 소리',
@@ -476,10 +476,11 @@ export class UIScene extends Phaser.Scene {
           '· 시약은 마우스 쪽으로 날아가요 (최대 150px)',
           '· 기체는 떨어진 자리에 구름으로 남아요',
           '· 같은 구름 안에 던져야 합쳐져요',
-          '· 수소와 산소는 섞기만 하면 그대로예요.',
-          '  불을 붙여야 터지면서 물이 돼요',
-          '· 폭발은 근처 수소 구름에 옮겨붙어요',
-          '· 나트륨은 물에 닿으면 그 열로 터져요',
+          '· 수소와 산소는 섞기만 하면 그대로예요',
+          '· 수소에 불이 붙으면 언제나 물이 남아요',
+          '  산소가 섞여 있으면 쾅, 없으면 불덩이',
+          '· 쾅·불덩이는 옆 수소 구름에 옮겨붙어요',
+          '· 나트륨은 물에 닿으면 쾅 + 노란 불덩이',
         ];
         c.add(this.txt(22, 34, left.join('\n'), 8));
         // 반응식은 아래 첨자가 있는 화학식으로
@@ -490,10 +491,10 @@ export class UIScene extends Phaser.Scene {
         const eqs: [FormulaPiece[], string][] = [
           [[P('H', CHEM_COLOR.H), plus, P('H', CHEM_COLOR.H), arrow, P('H2', CHEM_COLOR.H)], '저절로'],
           [[P('O', CHEM_COLOR.O), plus, P('O', CHEM_COLOR.O), arrow, P('O2', CHEM_COLOR.O)], '저절로'],
-          [[P('2H2', CHEM_COLOR.H), plus, P('O2', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '불 → 큰 폭발 + 물 2배'],
-          [[P('H2', CHEM_COLOR.H), plus, P('O', CHEM_COLOR.O), arrow, P('H2O', CHEM_COLOR.water)], '불 → 폭발 + 물'],
-          [[P('2H2', CHEM_COLOR.H), plus, P('O2(공기)', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '불 → 작게 펑 (물은 수증기로 날아감)'],
-          [[P('2H2O', CHEM_COLOR.water), plus, P('2Na', CHEM_COLOR.Na), arrow, P('2NaOH', CHEM_COLOR.naoh), plus, P('H2', CHEM_COLOR.H)], '열로 수소에 불이 붙어 폭발'],
+          [[P('2H2', CHEM_COLOR.H), plus, P('O2', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '불 → 쾅 (한 방 + 넉백) + 물'],
+          [[P('H2', CHEM_COLOR.H), plus, P('O', CHEM_COLOR.O), arrow, P('H2O', CHEM_COLOR.water)], '불 → 쾅 + 물'],
+          [[P('2H2', CHEM_COLOR.H), plus, P('O2(공기)', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '불 → 불덩이 (몇 초 화상) + 물'],
+          [[P('2H2O', CHEM_COLOR.water), plus, P('2Na', CHEM_COLOR.Na), arrow, P('2NaOH', CHEM_COLOR.naoh), plus, P('H2', CHEM_COLOR.H)], '쾅 + 노란 불덩이, 물은 1 줄어듦'],
         ];
         eqs.forEach(([pieces, note], i) => {
           const y = 46 + i * 25;

@@ -5,15 +5,13 @@ import { E32 } from '../art/palette';
 import { playSfx } from '../audio/sfx';
 
 /**
- * 화염방사기: 좌클릭을 누르고 있는 동안 마우스 쪽으로 불을 뿜는다.
- * 불길(부채꼴)에 닿은 수소 구름에 불이 붙고, 적에게는 약한 화상 피해.
+ * 화염방사기: 좌클릭을 누르고 있는 동안 마우스 쪽으로 불을 뿜는다. 불씨 역할만 하고 직접 피해는 없다.
+ * 판정은 눈에 보이는 불꽃 입자 그대로: 입자가 닿은 수소 구름에 불이 붙고, 입자는 벽에 막힌다.
  */
-const RANGE = 64;
+/** 불꽃이 퍼지는 반각 */
 const HALF = 0.32;
 /** 초당 불꽃 입자 수 */
 const RATE = 120;
-const DAMAGE = 3;
-const DAMAGE_TICK = 0.2;
 const SFX_TICK = 0.11;
 /** 불꽃이 연기로 바뀌는 시점 (수명 비율) */
 const SMOKE_AT = 0.72;
@@ -31,7 +29,6 @@ export class Flamethrower {
   firing = false;
   private flames: Flame[] = [];
   private acc = 0;
-  private damageT = 0;
   private sfxT = 0;
   private readonly fire: Phaser.GameObjects.Graphics;
   private readonly smoke: Phaser.GameObjects.Graphics;
@@ -70,14 +67,6 @@ export class Flamethrower {
           life: 0.3 + Math.random() * 0.12,
         });
       }
-      s.chem.igniteCone(p.x, p.y, n.a, RANGE, HALF);
-      this.damageT -= dt;
-      if (this.damageT <= 0) {
-        this.damageT = DAMAGE_TICK;
-        for (const t of s.combat.inArc(p.x, p.y, RANGE, n.a, HALF, 'enemy')) {
-          s.combat.hit(t, { damage: DAMAGE * p.atkMult, knockback: 15, fromX: p.x, fromY: p.y, color: E32.orange });
-        }
-      }
       this.sfxT -= dt;
       if (this.sfxT <= 0) {
         this.sfxT = SFX_TICK;
@@ -85,7 +74,6 @@ export class Flamethrower {
       }
     } else {
       this.acc = 0;
-      this.damageT = 0;
       this.sfxT = 0;
     }
     for (const f of this.flames) {
@@ -96,6 +84,14 @@ export class Flamethrower {
       f.vy = f.vy * drag - 28 * dt;
       f.x += f.vx * dt;
       f.y += f.vy * dt;
+      const smoke = f.t / f.life >= SMOKE_AT;
+      // 불꽃·연기는 손 높이(바닥에서 9px 위)로 날아감 → 바로 아래 바닥이 벽이면 막힘
+      if (s.terrain.isWallAt(f.x, f.y + 9)) {
+        f.t = f.life;
+        if (!smoke) s.vfx.spark(f.x, f.y + 9, E32.orange, 1, 30, 30);
+        continue;
+      }
+      if (!smoke) s.chem.igniteAt(f.x, f.y);
     }
     this.flames = this.flames.filter((f) => f.t < f.life);
   }
