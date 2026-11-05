@@ -20,9 +20,14 @@ const game = new Phaser.Game({
   // 테스트 환경(프레임이 매우 낮음)에서만 프레임 간격 보정을 끈다
   fps: params.has('maxdt') ? { smoothStep: false } : undefined,
   physics: { default: 'arcade', arcade: { debug: false } },
+  // 소리는 전부 audio/sfx.ts가 직접 냄 — Phaser가 오디오 장치를 하나 더 만들지 않게
+  audio: { noAudio: true },
   scale: { mode: Phaser.Scale.NONE, autoCenter: Phaser.Scale.CENTER_BOTH, zoom: integerZoom() },
   scene: [BootScene, RoomScene, UIScene],
 });
+
+// index.html의 "게임이 시작되지 않았어요" 안내: 로딩이 2초를 넘겨 떴더라도 여기까지 왔으면 치움
+document.getElementById('notice')?.remove();
 
 window.addEventListener('resize', () => game.scale.setZoom(integerZoom()));
 

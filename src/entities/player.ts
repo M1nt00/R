@@ -191,7 +191,7 @@ export class Player extends Actor {
     this.lockT = Math.max(this.lockT, 0.08);
   }
 
-  /** 화염방사: 시전 자세를 끝 프레임에서 유지 */
+  /** 불 뿜기: 불줄기가 손에 붙어 있는 동안 시전 자세를 끝 프레임에서 유지 */
   firePose(): void {
     if (this.dead || this.rollT > 0) return;
     if (this.action !== 'cast' || this.actionT <= 0) this.startAction('cast');

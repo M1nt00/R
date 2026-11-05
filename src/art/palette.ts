@@ -39,7 +39,6 @@ export const E32 = {
   skinShade: 0xc28569,
 } as const;
 
-export const PALETTE_LIST: number[] = Object.values(E32);
 
 /**
  * 용도별 색 이름. 단계마다 색조를 옮긴다:
@@ -55,25 +54,10 @@ export const C = {
   stone4: E32.silver,
   white: E32.white,
 
-  skin0: E32.sand,
   skin1: E32.skin,
   skin2: E32.skinShade,
   hair0: E32.plum,
   hair1: E32.darkbrown,
-  cloth0: E32.blue,
-  cloth1: E32.navy,
-  cloth2: E32.night,
-  // 주인공: 진홍 코트 (명도·채도 높게 → 어두운 배경에서 안 묻힘)
-  coat0: E32.orange,
-  coat1: E32.red,
-  coat2: E32.crimson,
-  coat3: E32.plum,
-  steel0: E32.white,
-  steel1: E32.silver,
-  steel2: E32.steel,
-  hairS0: E32.white,
-  hairS1: E32.silver,
-  hairS2: E32.steel,
   // 후드 원소술사: 저채도 남색 망토·후드, 갈색 옷
   cloakRim: E32.steel,
   cloak0: E32.slate,
@@ -83,13 +67,10 @@ export const C = {
   tunic0: E32.brown,
   tunic1: E32.darkbrown,
   tunic2: E32.black,
-  pants0: E32.indigo,
-  pants1: E32.night,
   leather0: E32.tan,
   leather1: E32.brown,
   gold0: E32.yellow,
   gold1: E32.amber,
-  gold2: E32.orange,
 
   fire0: E32.yellow,
   fire1: E32.orange,
@@ -99,10 +80,8 @@ export const C = {
   water2: E32.navy,
   wind0: E32.lime,
   wind1: E32.lime,
-  wind2: E32.forest,
   light0: E32.white,
   light1: E32.yellow,
-  light2: E32.amber,
 
   floor0: E32.black,
   floor1: E32.night,
@@ -150,13 +129,6 @@ export const ELEMENT_LIGHT: Record<Element, number> = {
   lightning: E32.white,
 };
 
-export const ELEMENT_DARK: Record<Element, number> = {
-  fire: E32.crimson,
-  water: E32.navy,
-  wind: E32.forest,
-  lightning: E32.orange,
-};
-
 /** 셀아웃: 외곽선은 순검정 대신 안쪽 색의 진한(파랑·보라로 옮긴) 버전 */
 export const SELOUT: Record<number, number> = {
   [E32.white]: E32.slate,
@@ -197,14 +169,6 @@ const lum = (c: number) => ((c >> 16) & 255) * 0.3 + ((c >> 8) & 255) * 0.59 + (
 export const luminance = lum;
 
 export const toCss = (c: number): string => '#' + c.toString(16).padStart(6, '0');
-
-/** 두 색을 t(0~1)만큼 섞기 — 원소 색이 서서히 바뀌는 데 사용 */
-export function mixColor(a: number, b: number, t: number): number {
-  const r = Math.round(((a >> 16) & 255) + (((b >> 16) & 255) - ((a >> 16) & 255)) * t);
-  const g = Math.round(((a >> 8) & 255) + (((b >> 8) & 255) - ((a >> 8) & 255)) * t);
-  const bl = Math.round((a & 255) + ((b & 255) - (a & 255)) * t);
-  return (r << 16) | (g << 8) | bl;
-}
 
 /** 색에 밝기 배율 곱하기 */
 export function scaleColor(c: number, k: number): number {

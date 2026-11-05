@@ -1,4 +1,6 @@
-/** WebAudio로 즉석 합성하는 효과음 — 에셋 없이 반응마다 고유 소리 */
+/** WebAudio 효과음·배경음 — 대부분 즉석 합성, art/sfx/에 녹음 파일이 있는 소리(SAMPLES)는 그걸 재생 */
+import breathWav from '../../art/sfx/breath.wav?url';
+
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let noiseBuf: AudioBuffer | null = null;
@@ -65,6 +67,46 @@ function noise(
   src.stop(t0 + dur + 0.02);
 }
 
+// ───────────────── 녹음된 효과음 (art/sfx/) ─────────────────
+// 디코드가 끝나면 같은 이름의 합성음 대신 재생한다. 파일이 없거나 디코드에 실패하면 합성음이 그대로 난다.
+// gain: 합성음과 크기를 맞추는 값 (마스터 0.2를 거친 뒤 기준), vary: 재생 속도(음높이)를 매번 ±몇 %씩 흔들지
+const SAMPLES: Record<string, { url: string; gain: number; vary: number }> = {
+  // Soundza "Mouth Blow Hiss": 원본은 폭발음(kaboom)만큼 커서, 1.5초마다 쓰는 기본 공격에 맞게 낮춤
+  breath: { url: breathWav, gain: 0.25, vary: 0.05 },
+};
+const sampleBufs = new Map<string, AudioBuffer>();
+
+/** 부팅 때 한 번: 사용자 입력 전이라 실제 AudioContext 대신 OfflineAudioContext로 미리 디코드 */
+export function loadSamples(): void {
+  const OAC =
+    window.OfflineAudioContext ??
+    (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+  if (!OAC) return;
+  const dec = new OAC(1, 1, 44100);
+  for (const [name, s] of Object.entries(SAMPLES)) {
+    fetch(s.url)
+      .then((r) => r.arrayBuffer())
+      .then((b) => dec.decodeAudioData(b))
+      .then((buf) => sampleBufs.set(name, buf))
+      .catch(() => console.warn(`[sfx] ${name}: 녹음 파일을 못 불러와 합성음 사용`));
+  }
+}
+
+function playSample(c: AudioContext, name: string): boolean {
+  const buf = sampleBufs.get(name);
+  const s = SAMPLES[name];
+  if (!buf || !s) return false;
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  src.playbackRate.value = 1 + (Math.random() * 2 - 1) * s.vary; // 연달아 써도 똑같이 들리지 않게
+  const g = c.createGain();
+  g.gain.value = s.gain;
+  src.connect(g);
+  g.connect(master!);
+  src.start();
+  return true;
+}
+
 export function playSfx(name: string): void {
   if (muted) return;
   const now = performance.now();
@@ -72,6 +114,7 @@ export function playSfx(name: string): void {
   last.set(name, now);
   const c = audio();
   if (!c) return;
+  if (playSample(c, name)) return;
   switch (name) {
     case 'slash':
       noise(c, 0.09, 0.45, 3000, 800, 0.8);
@@ -108,9 +151,6 @@ export function playSfx(name: string): void {
       break;
     case 'splash':
       noise(c, 0.2, 0.45, 1200, 300, 0.9);
-      break;
-    case 'switch':
-      tone(c, 660, 990, 0.08, 'triangle', 0.13);
       break;
     case 'roll':
       noise(c, 0.12, 0.22, 800, 300, 0.8);
@@ -161,9 +201,11 @@ export function playSfx(name: string): void {
       noise(c, 0.7, 0.35, 6500, 2500, 1, 'highpass');
       tone(c, 900, 1400, 0.6, 'triangle', 0.04);
       break;
-    case 'flame':
-      noise(c, 0.16, 0.16, 900, 500, 0.6, 'lowpass');
-      noise(c, 0.07, 0.05, 3500, 2500, 1, 'highpass', 0.03);
+    case 'breath':
+      // 녹음 파일(art/sfx/breath.wav)이 없을 때만 쓰는 대체음: 낮은 굉음 + 쉬익 하고 빠지는 바람
+      noise(c, 0.5, 0.5, 1600, 220, 0.7, 'lowpass');
+      noise(c, 0.22, 0.14, 4200, 1800, 1, 'highpass', 0.02);
+      tone(c, 130, 60, 0.4, 'sawtooth', 0.05);
       break;
     case 'photo':
       tone(c, 520, 780, 0.25, 'sine', 0.08);
@@ -281,7 +323,8 @@ function note(c: AudioContext, f: number, t0: number, dur: number, type: Oscilla
 }
 
 function tick() {
-  if (!ctx || mood === 'none' || !musicGain) return;
+  // 첫 클릭 전(멈춘 상태)엔 시계가 0에 멈춰 있어 예약한 음이 한 시각에 쌓였다가 한꺼번에 터짐
+  if (!ctx || ctx.state !== 'running' || mood === 'none' || !musicGain) return;
   const sc = SCALES[mood];
   const beat = sc.tempo;
   const now = ctx.currentTime + 0.05;

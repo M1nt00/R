@@ -21,25 +21,18 @@ export interface TileInfo {
 const DIRS: Record<string, [number, number]> = { '>': [1, 0], '<': [-1, 0], '^': [0, -1], v: [0, 1] };
 const ASH_REGROW = 18;
 
-interface PuddleInst {
-  tiles: number[];
-  t: number;
-}
-
 /**
  * 방의 지형. 지형 타일도 원소를 가지고 있어서 공격 원소와 반응한다.
- * 고정 부분(바닥·벽·웅덩이·통로)은 한 장으로 굽고, 풀·재·임시 웅덩이·지형 효과는 매 프레임 그린다.
+ * 고정 부분(바닥·벽·웅덩이·통로)은 한 장으로 굽고, 풀·재·지형 효과는 매 프레임 그린다.
  */
 export class Terrain {
   readonly base: TileKind[] = [];
   readonly dirX: number[] = [];
   readonly dirY: number[] = [];
-  readonly tempPuddle: number[] = [];
   readonly fx: TerrainFx[] = [];
   readonly fxT: number[] = [];
   readonly spreadT: number[] = [];
   readonly ashT: number[] = [];
-  private puddles: PuddleInst[] = [];
   private readonly dyn: Phaser.GameObjects.Graphics;
   private readonly reactionByKey = new Map<string, TerrainReactionDef>();
   private readonly lastText = new Map<string, number>();
@@ -65,7 +58,6 @@ export class Terrain {
         this.base.push(kind);
         this.dirX.push(d[0]);
         this.dirY.push(d[1]);
-        this.tempPuddle.push(0);
         this.fx.push('none');
         this.fxT.push(0);
         this.spreadT.push(0);
@@ -89,9 +81,7 @@ export class Terrain {
   }
 
   kindAt(i: number): TileKind {
-    const b = this.base[i];
-    if (this.tempPuddle[i] > 0 && (b === 'floor' || b === 'ash' || b === 'grass')) return 'puddle';
-    return b;
+    return this.base[i];
   }
 
   isWallAt(x: number, y: number): boolean {
@@ -107,29 +97,6 @@ export class Terrain {
     const i = this.tileOf(x, y);
     if (i < 0) return { kind: 'wall', fx: 'none', dirX: 0, dirY: 0 };
     return { kind: this.kindAt(i), fx: this.fx[i], dirX: this.dirX[i], dirY: this.dirY[i] };
-  }
-
-  /** 물 스킬: 물웅덩이 장판 생성. cap개를 넘으면 오래된 것부터 마름 */
-  addPuddle(x: number, y: number, radius: number, duration: number, cap = 1): void {
-    const tiles: number[] = [];
-    this.forTilesInCircle(x, y, radius, (i) => {
-      const b = this.base[i];
-      if (b === 'floor' || b === 'ash' || b === 'grass' || b === 'puddle') {
-        if (this.fx[i] === 'burning') this.fx[i] = 'none';
-        this.tempPuddle[i] = Math.max(this.tempPuddle[i], duration);
-        tiles.push(i);
-      }
-    });
-    this.puddles.push({ tiles, t: duration });
-    while (this.puddles.length > cap) {
-      const old = this.puddles.shift()!;
-      for (const i of old.tiles) {
-        if (!this.puddles.some((p) => p.tiles.includes(i))) {
-          this.tempPuddle[i] = 0;
-          if (this.base[i] !== 'puddle' && (this.fx[i] === 'electric' || this.fx[i] === 'ice')) this.fx[i] = 'none';
-        }
-      }
-    }
   }
 
   /** 원소 공격이 지형에 닿았을 때 — 지형 반응 */
@@ -212,17 +179,8 @@ export class Terrain {
   }
 
   update(dt: number): void {
-    for (const p of this.puddles) p.t -= dt;
-    this.puddles = this.puddles.filter((p) => p.t > 0);
     const n = COLS * ROWS;
     for (let i = 0; i < n; i++) {
-      if (this.tempPuddle[i] > 0) {
-        this.tempPuddle[i] -= dt;
-        if (this.tempPuddle[i] <= 0) {
-          this.tempPuddle[i] = 0;
-          if (this.base[i] !== 'puddle' && (this.fx[i] === 'electric' || this.fx[i] === 'ice')) this.fx[i] = 'none';
-        }
-      }
       if (this.base[i] === 'ash') {
         this.ashT[i] -= dt;
         if (this.ashT[i] <= 0) this.base[i] = 'grass';
@@ -302,8 +260,6 @@ export class Terrain {
       const flick = hash2(i, Math.floor(time * 12), 3);
 
       if (kind === 'puddle') {
-        const temp = this.base[i] !== 'puddle';
-        if (temp) this.drawTempWater(g, i, c, r, time);
         if (fx === 'ice') {
           g.fillStyle(0xffffff, 0.92);
           g.fillRect(x, y, TILE, TILE);
@@ -313,7 +269,7 @@ export class Terrain {
           g.fillRect(x + (h % 9) + 3, y + ((h >> 2) % 9) + 2, 1, 1);
           g.fillStyle(0xc0cbdc, 0.8);
           g.fillRect(x, y + 15, TILE, 1);
-        } else if (!temp) {
+        } else {
           // 잔물결
           const off = Math.floor(time * 6 + hash2(c, r, 8) / 100) % 16;
           g.fillStyle(C.water1, 0.55);
@@ -367,28 +323,6 @@ export class Terrain {
     }
   }
 
-  private drawTempWater(g: Phaser.GameObjects.Graphics, i: number, c: number, r: number, time: number) {
-    const x = c * TILE;
-    const y = r * TILE;
-    const t = this.tempPuddle[i];
-    const fade = Math.min(1, t);
-    const wet = (dc: number, dr: number) => {
-      const nc = c + dc;
-      const nr = r + dr;
-      if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS) return false;
-      return this.kindAt(this.idx(nc, nr)) === 'puddle';
-    };
-    g.fillStyle(C.water2, 0.85 * fade);
-    const inset = (cond: boolean) => (cond ? 0 : 2);
-    const l = inset(wet(-1, 0));
-    const rr = inset(wet(1, 0));
-    const u = inset(wet(0, -1));
-    const d = inset(wet(0, 1));
-    g.fillRect(x + l, y + u, TILE - l - rr, TILE - u - d);
-    g.fillStyle(C.water1, 0.6 * fade);
-    const off = Math.floor(time * 5 + hash2(c, r, 3) / 100) % 12;
-    g.fillRect(x + 2 + off, y + 6 + (hash2(c, r, 2) % 5), 3, 1);
-  }
 
   private drawGrass(g: Phaser.GameObjects.Graphics, i: number, c: number, r: number, time: number, burning: boolean) {
     const x = c * TILE;

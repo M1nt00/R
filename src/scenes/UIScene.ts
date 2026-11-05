@@ -10,6 +10,7 @@ import { MASTERY_DESC, REACTION_NAME, reactionLevel } from '../run/mods';
 import { META_DEF, buySecondary, buyStat, meta, primaryFor, saveMeta, secondaryStatus, statCost, statLevel } from '../run/meta';
 import { playSfx, toggleMute } from '../audio/sfx';
 import { CHEM_COLOR, REAGENTS, REAGENT_KEY, THROW_CD, type ChemEvent, type ChemTerm } from '../chem/chemistry';
+import { BREATH_CD } from '../chem/flamethrower';
 import { formulaLine, formulaTexts, joinTerms, toCssColor, type FormulaPiece, type FormulaText } from '../chem/formula';
 
 const W = VIEW_W;
@@ -47,6 +48,8 @@ export class UIScene extends Phaser.Scene {
   private chemTail: { key: string; abs: number }[] = [];
   /** 시약 슬롯 글자 (CO₂처럼 아래 첨자가 있어서 화학식으로 그림) */
   private reagentSyms: { c: Phaser.GameObjects.Container; w: number }[] = [];
+  /** 시약 슬롯 오른쪽의 브레스(좌클릭) 슬롯 아이콘 */
+  private breathIcon!: Phaser.GameObjects.Image;
   private chemGen = 0;
 
   constructor() {
@@ -99,7 +102,7 @@ export class UIScene extends Phaser.Scene {
     t('potion', 16, 18);
     t('gold', 47, 18, 8, toCss(C.gold0));
     t('essence', 83, 18, 8, toCss(E32.pink));
-    t('room', W - 4, 3, 10).setOrigin(1, 0);
+    t('room', W - 4, 3, 10).setOrigin(1, 0).setAlign('right');
     t('objective', W - 4, 22, 8, toCss(E32.silver)).setOrigin(1, 0).setAlign('right').setWordWrapWidth(170);
     t('hint', W - 4, H - 11, 8, toCss(E32.slate)).setOrigin(1, 0);
     t('build', 4, 0, 8, toCss(E32.silver));
@@ -116,6 +119,9 @@ export class UIScene extends Phaser.Scene {
       this.slotLayer.add(sc);
       this.reagentSyms.push({ c: sc, w: sym.w });
     });
+    this.slotLayer.add(t('bkey', 0, 0, 8, toCss(E32.steel)));
+    this.breathIcon = this.icon(0, 0, 'fire');
+    this.slotLayer.add(this.breathIcon);
     this.banner = this.txt(W / 2, 70, '', 12).setOrigin(0.5).setAlpha(0);
 
     this.game.events.on('banner', (text: string, color: number) => {
@@ -196,7 +202,8 @@ export class UIScene extends Phaser.Scene {
         playSfx('hover');
       });
       zone.on('pointerout', () => draw(false));
-      zone.on('pointerdown', onClick);
+      // 누를 때 닫으면 다시 돌아간 방이 아직 눌린 버튼을 불 뿜기로 받아서, 뗄 때 닫는다 (아래 두 곳도 같음)
+      zone.on('pointerup', onClick);
     }
     c.add([g, t, zone]);
   }
@@ -228,7 +235,7 @@ export class UIScene extends Phaser.Scene {
         });
         c.add(this.txt(W / 2, 132, '시약을 던져서 실제 화학 반응을 일으켜요', 10, toCss(E32.silver)).setOrigin(0.5));
         const lines = [
-          'WASD 이동 · 마우스 조준 · 좌클릭(꾹) 화염 방사 · 스페이스 구르기',
+          'WASD 이동 · 마우스 조준 · 좌클릭 불 뿜기 · 스페이스 구르기',
           '1 수소(H) · 2 산소(O) · 3 나트륨(Na) · 4 탄소(C) 던지기',
           'Q 포션 · E 상호작용',
         ];
@@ -238,7 +245,7 @@ export class UIScene extends Phaser.Scene {
         c.add(go);
         c.add(this.txt(W / 2, H - 14, `원소 정수 ${meta.essence} · 도전 ${meta.runs}회 · 최고 ${meta.bestDepth}층 · 승리 ${meta.wins}회`, 8, toCss(E32.slate)).setOrigin(0.5));
         const zone = this.add.zone(0, 0, W, H).setOrigin(0).setInteractive();
-        zone.on('pointerdown', close);
+        zone.on('pointerup', close);
         c.add(zone);
       },
       close,
@@ -265,7 +272,7 @@ export class UIScene extends Phaser.Scene {
       playSfx('hover');
     });
     zone.on('pointerout', () => draw(false));
-    zone.on('pointerdown', onPick);
+    zone.on('pointerup', onPick);
     return zone;
   }
 
@@ -473,7 +480,7 @@ export class UIScene extends Phaser.Scene {
         const left = [
           '[ 조작 ]',
           'WASD 이동 · 마우스 조준 · 스페이스 구르기',
-          '좌클릭(꾹) 화염 방사 (불씨, 직접 피해 없음)',
+          '좌클릭 불 뿜기 (불씨, 직접 피해 없음, 쿨타임 1.5초)',
           '1 수소 · 2 산소 · 3 나트륨 · 4 탄소 던지기',
           'Q 포션 · E 상호작용 · H/ESC 일시정지 · M 소리',
           '',
@@ -612,7 +619,28 @@ export class UIScene extends Phaser.Scene {
       const sym = this.reagentSyms.at(i);
       sym?.c.setPosition(Math.round(x + SLOT / 2 - sym.w / 2), y + 7);
     });
-    const reagentW = REAGENTS.length * (SLOT + GAP) - GAP;
+    // 브레스 슬롯 (좌클릭, 쿨타임이 위에서부터 걷힘)
+    {
+      const x = rx0 + REAGENTS.length * (SLOT + GAP) + GAP * 2;
+      const y = baseY;
+      const cd = r.flame?.cd ?? 0;
+      gs.fillStyle(E32.black, 1);
+      gs.fillRect(x - 1, y - 1, SLOT + 2, SLOT + 2);
+      gs.fillStyle(E32.night, 1);
+      gs.fillRect(x, y, SLOT, SLOT);
+      gs.fillStyle(E32.orange, cd > 0 ? 0.35 : 0.8);
+      gs.fillRect(x, y, SLOT, 1);
+      gs.fillRect(x, y + SLOT - 1, SLOT, 1);
+      gs.fillRect(x, y, 1, SLOT);
+      gs.fillRect(x + SLOT - 1, y, 1, SLOT);
+      this.breathIcon.setPosition(x + SLOT / 2, y + 14).setAlpha(cd > 0 ? 0.45 : 1);
+      if (cd > 0) {
+        gs.fillStyle(E32.black, 0.65);
+        gs.fillRect(x + 1, y + 1, SLOT - 2, Math.round((SLOT - 2) * Math.min(1, cd / BREATH_CD)));
+      }
+      T.bkey.setPosition(x + 2, y + 1).setText('클릭');
+    }
+    const reagentW = (REAGENTS.length + 1) * (SLOT + GAP) + GAP;
     // 캐릭터가 UI 뒤에 있으면 반투명 (화면 좌표 기준)
     const cam = r.cameras.main;
     const psx = p.x - cam.worldView.x;
@@ -622,7 +650,7 @@ export class UIScene extends Phaser.Scene {
 
     // 방 이름·진행도·목표 (오른쪽 위)
     const bossUp = !!(r.boss && !r.boss.dead);
-    T.room.setText(r.roomName.replace(' · ', '\n')).setVisible(!bossUp).setAlign('right');
+    T.room.setText(r.roomName.replace(' · ', '\n')).setVisible(!bossUp);
     if (run && !bossUp) {
       const n = REGION.length;
       for (let i = 1; i <= n; i++) {

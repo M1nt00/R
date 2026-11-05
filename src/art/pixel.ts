@@ -82,31 +82,6 @@ export class Px {
       }
     }
   }
-
-  /** 이미 칠해진 픽셀만 바꾼다 (음영 덧칠용) */
-  shade(fn: (x: number, y: number, c: number) => number): void {
-    for (let y = 0; y < this.h; y++) {
-      for (let x = 0; x < this.w; x++) {
-        const c = this.d[y * this.w + x];
-        if (c !== NONE) this.d[y * this.w + x] = fn(x, y, c);
-      }
-    }
-  }
-
-  blit(src: Px, ox: number, oy: number): void {
-    for (let y = 0; y < src.h; y++) {
-      for (let x = 0; x < src.w; x++) {
-        const c = src.d[y * src.w + x];
-        if (c !== NONE) this.set(ox + x, oy + y, c);
-      }
-    }
-  }
-
-  flipX(): Px {
-    const p = new Px(this.w, this.h);
-    for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) p.d[y * this.w + x] = this.d[y * this.w + (this.w - 1 - x)];
-    return p;
-  }
 }
 
 /**
@@ -218,17 +193,6 @@ export function registerCanvas(
   draw(canvas.getContext('2d')!);
   if (scene.textures.exists(key)) scene.textures.remove(key);
   scene.textures.addCanvas(key, canvas);
-}
-
-/** 결정적 의사난수 (타일 무늬가 매번 같게) */
-export function rng(seed: number): () => number {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s ^= s << 13;
-    s ^= s >>> 17;
-    s ^= s << 5;
-    return ((s >>> 0) % 100000) / 100000;
-  };
 }
 
 export const hash2 = (x: number, y: number, s = 0): number =>

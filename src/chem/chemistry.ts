@@ -4,6 +4,7 @@ import { DEPTH } from '../config';
 import { E32 } from '../art/palette';
 import { playSfx } from '../audio/sfx';
 import { formulaLine, joinTerms } from './formula';
+import { playFx, type FxKey } from './fx';
 
 /**
  * 화학 반응 시험판 (설계 문서: 「화학 반응 액션 로그라이트 설계 문서」)
@@ -68,6 +69,16 @@ const SPECIES_COLOR: Record<Species, number> = {
 };
 
 const term = (f: string, color: number): ChemTerm => ({ f, color });
+
+/** 반응식 검산용: 항들의 원자 수 합 ("2H2O" → H 4, O 2. 앞 숫자는 계수) */
+function atomCount(terms: ChemTerm[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const { f } of terms) {
+    const [, k, rest] = /^(\d*)(.*)$/.exec(f)!;
+    for (const [, el, n] of rest.matchAll(/([A-Z][a-z]?)(\d*)/g)) m.set(el, (m.get(el) ?? 0) + Number(k || 1) * Number(n || 1));
+  }
+  return m;
+}
 
 /** 구름 안에서 저절로 일어나는 반응 (원자끼리 결합). 불이 필요한 반응은 ignite()에서 */
 interface CloudReaction {
@@ -149,6 +160,8 @@ interface Flask {
   spin: number;
   img: Phaser.GameObjects.Image;
   shadow: Phaser.GameObjects.Ellipse;
+  /** 지난 몇 프레임의 병 위치 (꼬리) */
+  trail: { x: number; y: number }[];
 }
 
 interface Puff {
@@ -264,6 +277,8 @@ const LIQUID: Record<Reagent, [string, string]> = {
   C: ['#5a6988', '#3a4466'],
 };
 
+const liquidColor = (r: Reagent): number => parseInt(LIQUID[r][0].slice(1), 16);
+
 type Pal = Phaser.Types.Create.Palette;
 
 function makeTextures(s: Phaser.Scene): void {
@@ -343,6 +358,13 @@ export class ChemSystem {
   private shownCount = 0;
 
   private emit(ev: ChemEvent): void {
+    // 개발 중 자체 검사: 화면에 띄우는 반응식은 모두 여기를 지나므로, 양쪽 원자 수가 다르면 콘솔에 오류
+    if (import.meta.env.DEV && ev.type === 'equation') {
+      const l = atomCount(ev.lhs);
+      const r = atomCount(ev.rhs);
+      const ok = l.size === r.size && [...l].every(([el, n]) => r.get(el) === n);
+      console.assert(ok, `[chem] 원자 수가 안 맞는 반응식: ${ev.lhs.map((t) => t.f).join(' + ')} → ${ev.rhs.map((t) => t.f).join(' + ')}`);
+    }
     if (ev.type !== 'clear') this.shownCount++;
     this.s.game.events.emit('chem', ev);
   }
@@ -395,7 +417,7 @@ export class ChemSystem {
     const dist = Math.hypot(tx - sx, ty - sy);
     const img = s.add.image(sx, sy - 12, `flask_${r}`).setDepth(DEPTH.projectile);
     const shadow = s.add.ellipse(sx, sy, 6, 3, E32.black, 0.45).setDepth(DEPTH.shadow);
-    this.flasks.push({ r, sx, sy, tx, ty, t: 0, dur: 0.16 + dist / 650, h: 8 + dist * 0.16, spin: Math.cos(a) < 0 ? -1 : 1, img, shadow });
+    this.flasks.push({ r, sx, sy, tx, ty, t: 0, dur: 0.16 + dist / 650, h: 8 + dist * 0.16, spin: Math.cos(a) < 0 ? -1 : 1, img, shadow, trail: [] });
     p.throwPose();
     this.throwCd = THROW_CD;
     playSfx('throw');
@@ -409,6 +431,8 @@ export class ChemSystem {
       const gy = Phaser.Math.Linear(f.sy, f.ty, k);
       // 손 높이(12)에서 출발해 포물선을 그리며 바닥(0)에 떨어짐
       const z = (1 - k) * 12 + Math.sin(Math.PI * k) * f.h;
+      f.trail.push({ x: f.img.x, y: f.img.y });
+      if (f.trail.length > 4) f.trail.shift();
       f.img.setPosition(Math.round(gx), Math.round(gy - z));
       // 픽셀이 깨지지 않게 90도 단위로만 회전
       f.img.setRotation(Math.floor(f.t / 0.07) * (Math.PI / 2) * f.spin);
@@ -422,10 +446,8 @@ export class ChemSystem {
     const s = this.s;
     f.img.destroy();
     f.shadow.destroy();
-    const col = f.r === 'O' ? E32.red : f.r === 'C' ? E32.slate : E32.silver;
-    s.vfx.spark(f.tx, f.ty, E32.white, 6, 60, 45);
-    s.vfx.spark(f.tx, f.ty, col, 5, 45, 35);
-    s.vfx.ring(f.tx, f.ty, 2, 10, col, 0.2, 1);
+    if (f.r !== 'Na') playFx(s, 'shatter_splash', f.tx, f.ty, liquidColor(f.r), DEPTH.vfx - 1);
+    playFx(s, 'shatter_glass', f.tx, f.ty);
     playSfx('glass');
     this.apply(f.r, f.tx, f.ty);
   }
@@ -514,7 +536,8 @@ export class ChemSystem {
 
   /** 불이 붙음: 잠깐 불길이 번진 뒤, 던져 넣은 산소와 섞인 수소는 쾅, 남은 수소는 공기로 타서 불덩이. 어느 쪽이든 물이 남음 */
   private ignite(c: Cloud): void {
-    if (!this.flammable(c)) return;
+    // 연쇄 점화는 0.12초 뒤에 오므로 그사이 시간이 다 돼 사라진 구름은 건너뜀
+    if (!this.flammable(c) || !this.clouds.includes(c)) return;
     const s = this.s;
     const sp = c.species;
     let mixed = 0;
@@ -558,11 +581,12 @@ export class ChemSystem {
       const { x, y } = c;
       if (mixed > 0) {
         // 산소가 섞여 있으면 큰 폭발 (남는 수소가 있으면 공기로 같이 타서 조금 더 커짐)
-        this.blast(x, y - 4, Math.min(64, boomRadius(mixed) + 3 * air), boomDamage(mixed) + 4 * air, true, E32.yellow, E32.orange, 'kaboom');
+        const r = Math.min(64, boomRadius(mixed) + 3 * air);
+        this.blast(x, y - 4, r, boomDamage(mixed) + 4 * air, true, E32.yellow, E32.orange, 'kaboom', r > 44 ? 'boom_l' : 'boom_s');
         if (air > 0) this.showAfter(NA_BURN_EQ_DELAY, AIR_BURN);
       } else {
         // 산소 없이 공기 중 산소로 타면 약한 폭발 (수소 불꽃 색인 옅은 파랑)
-        this.blast(x, y - 4, weakRadius(air), weakDamage(air), false, E32.cyan, E32.white, 'boom');
+        this.blast(x, y - 4, weakRadius(air), weakDamage(air), false, E32.cyan, E32.white, 'boom', 'boom_w');
       }
       // 수소가 타면 언제나 물이 남는다
       s.scheduler.after(0.15, () => this.makeWater(x, y, mixed + air));
@@ -578,9 +602,10 @@ export class ChemSystem {
   }
 
   /** 폭발: 피해·넉백 (적만), 근처 수소 구름에 옮겨붙음 */
-  private blast(x: number, y: number, r: number, damage: number, big: boolean, color: number, color2: number, sfx: string): void {
+  private blast(x: number, y: number, r: number, damage: number, big: boolean, color: number, color2: number, sfx: string, fx: FxKey): void {
     const s = this.s;
-    s.vfx.explosion(x, y, r, color);
+    playFx(s, fx, x, y - 4);
+    s.vfx.scorch(x, y, r / 18, 0.75);
     s.vfx.ring(x, y, 6, r + 10, color, 0.35, 2);
     s.vfx.spark(x, y, color, 10 + Math.round(r / 4), 130, 90);
     s.vfx.spark(x, y, color2, 8 + Math.round(r / 5), 90, 70);
@@ -632,7 +657,7 @@ export class ChemSystem {
     const w = this.waterAt(x, y, 4);
     const used = w ? this.consumeWater(w, x, y, 2) : 0;
     s.vfx.spark(x, y, E32.cyan, 18, 150, 110);
-    this.blast(x, y, NA_BLAST_R, NA_DAMAGE, true, E32.amber, E32.yellow, 'kaboom');
+    this.blast(x, y, NA_BLAST_R, NA_DAMAGE, true, E32.amber, E32.yellow, 'kaboom', 'boom_na');
     // 생긴 수소(H₂)가 타서 물 1이 돌아옴 (물 2개를 썼을 때)
     const back = Math.floor(used / 2);
     if (back > 0) s.scheduler.after(0.2, () => this.makeWater(x, y, back));
@@ -805,7 +830,8 @@ export class ChemSystem {
     for (const c of this.clouds) {
       c.age += dt;
       if (c.burning > 0) {
-        // 불길이 구름에 번지는 중
+        // 불길이 구름에 번지는 중. 남은 시간을 줄여 그리기에서 부풀고 밝아지게 함 (0으로 만드는 건 점화 예약 쪽)
+        c.burning = Math.max(0.01, c.burning - dt);
         if (Math.random() < dt * 40) this.s.vfx.spark(c.x + (Math.random() - 0.5) * 18, c.y - 8 + (Math.random() - 0.5) * 8, Math.random() < 0.5 ? E32.yellow : E32.orange, 1, 30, 40);
         continue;
       }
@@ -1048,6 +1074,14 @@ export class ChemSystem {
     this.drawBeams(time);
     const g = this.g;
     g.clear();
+    for (const f of this.flasks) {
+      const col = liquidColor(f.r);
+      // 병 그림 위로는 안 긋게 직전 위치까지만
+      for (let i = 1; i < f.trail.length; i++) {
+        g.lineStyle(1, col, 0.2 * i);
+        g.lineBetween(f.trail[i - 1].x, f.trail[i - 1].y, f.trail[i].x, f.trail[i].y);
+      }
+    }
     for (const c of this.clouds) {
       if (!c.shown.length) continue;
       const fade = Math.min(1, c.t / 1.5) * Math.min(1, c.age / 0.25);
@@ -1096,9 +1130,15 @@ export class ChemSystem {
       const shimmer = 1 + 0.12 * Math.sin(time * 9 + b.ph);
       const cxAt = (y: number) => b.x - (b.y - y) * BEAM_TILT;
       const widthAt = (y: number) => 14 + 30 * ((y - top) / h);
+      // 열매가 열리는 순간 빛기둥 한가운데가 하얗게 번쩍
+      const flash = b.t >= PHOTO_REVEAL ? Math.exp(-(b.t - PHOTO_REVEAL) * 7) : 0;
       for (let y = top; y < bottom; y += 2) {
         const cx = cxAt(y);
         const w = widthAt(y);
+        if (flash > 0.02) {
+          g.fillStyle(E32.white, 0.35 * flash);
+          g.fillRect(Math.round(cx - w * 0.1), y, Math.max(2, Math.round(w * 0.2)), 2);
+        }
         // 번진 가장자리 → 따뜻한 빛 → 노란 심
         g.fillStyle(E32.sand, 0.04 * k * shimmer);
         g.fillRect(Math.round(cx - w * 0.7), y, Math.round(w * 1.4), 2);
@@ -1130,6 +1170,28 @@ export class ChemSystem {
         g.fillStyle(E32.white, 0.6 * Math.min(1, k) * Math.sin(Math.PI * p));
         g.fillRect(Math.round(x), Math.round(y), 1, 1);
       }
+      // 빛을 받은 웅덩이에서 방울이 흔들리며 올라옴
+      if (reach >= 1) {
+        for (let i = 0; i < 6; i++) {
+          const p = (b.t * 0.8 + i / 6) % 1;
+          const x = b.x + Math.sin(i * 2.4 + b.ph) * 12 + Math.sin(time * 5 + i) * 1.5;
+          const sz = i % 3 === 0 ? 2 : 1;
+          g.fillStyle(i % 2 ? E32.lime : E32.white, 0.8 * Math.min(1, k) * Math.sin(Math.PI * p));
+          g.fillRect(Math.round(x), Math.round(b.y - 2 - p * 36), sz, sz);
+        }
+      }
+    }
+    // 열매가 맺혀 떨어지는 동안 십자 반짝임 (draw()의 열매 위치와 같게)
+    for (const f of this.fruits) {
+      if (f.drop >= 1) continue;
+      const n = Math.round(1 + 4 * Math.sin(Math.PI * f.drop));
+      const x = Math.round(f.x);
+      const y = Math.round(f.y - (1 - f.drop) * 10) - 4;
+      g.fillStyle(E32.white, 0.9);
+      g.fillRect(x - n, y, n * 2 + 1, 1);
+      g.fillRect(x, y - n, 1, n * 2 + 1);
+      g.fillStyle(E32.yellow, 0.6);
+      g.fillRect(x - 1, y - 1, 3, 3);
     }
   }
 

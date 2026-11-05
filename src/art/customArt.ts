@@ -16,7 +16,7 @@ const ELEM_URL = find('hero_elem.png');
 export const hasCustomHero = (): boolean => !!(BODY_URL && ELEM_URL);
 
 /**
- * 칸 크기는 시트 가로 / 6 으로 정한다 (32 → 192px, 48 → 288px 시트).
+ * 칸 크기는 시트 가로 / HERO_SHEET_COLS(12) 로 정한다 (32 → 384px, 48 → 576px 시트).
  * 발밑선은 칸 아래에서 6px 위 (32칸 = y26, 48칸 = y42), 가로 중심은 칸 가운데.
  */
 export const HERO_CELL = { size: 32, foot: 26 };
@@ -66,6 +66,9 @@ export function installCustomHero(scene: Phaser.Scene): boolean {
   HERO_CELL.size = bodies[0].w;
   HERO_CELL.foot = bodies[0].w - 6;
   const elems = read('custom_hero_elem_src');
+  // 원본 시트는 잘라 낸 뒤엔 쓰지 않음 (576×1152 두 장이 GPU 메모리에 남지 않게)
+  scene.textures.remove('custom_hero_body_src');
+  scene.textures.remove('custom_hero_elem_src');
   registerSheet(scene, 'hero_body', bodies);
   registerSheet(scene, 'hero_elem_raw', elems);
   // 다른 이름도 같은 그림으로 (원소별 구운 버전은 쓰지 않음)

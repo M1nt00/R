@@ -3,9 +3,9 @@ import { Px, outline, registerActor } from './pixel';
 import { C, E0, E1, E2 } from './palette';
 
 /**
- * 주인공: 은발 진홍 코트 검사 (32×32, 발밑 y=26). 방향 3개(아래·위·옆 — 왼쪽은 좌우 반전).
- * 원소 레이어 = 검날 · 머리띠 · 허리띠 → 원소별 색 램프로 구워서 바꿔 끼운다.
- * 포니테일·머리띠 리본은 스프라이트에 굽지 않고 코드(스프링)로 그린다 → 프레임별 매달 위치만 기록.
+ * 코드로 그리는 대체 주인공: 후드 원소술사 (32×32, 발밑 y=26). art/hero/ 에 그림 파일이 있으면 쓰지 않는다.
+ * 방향 3개(아래·위·옆 — 왼쪽은 좌우 반전). 원소 레이어 = 망토 안감 · 장갑 · 눈 · 허리띠 · 검날.
+ * 후드 끝자락·허리띠 끈은 스프라이트에 굽지 않고 코드(스프링)로 그린다 → 프레임별 매달 위치만 기록.
  * 공격 = 예비동작 → 스미어(궤적을 늘인 1프레임) → 타격 정지 → 회복, 프레임마다 시간이 다르다.
  */
 
@@ -30,14 +30,8 @@ export interface Anchor {
   bandFront?: boolean;
 }
 
-/** 주인공 스타일: mage = 후드 원소술사, swordsman = 은발 검사 */
-export const HERO_STYLE: 'mage' | 'swordsman' = 'mage';
-
-/** 스타일별 스프링 모양 (hair 슬롯 = 은발 포니테일 또는 후드 끝자락) */
-export const HERO_SPRING =
-  HERO_STYLE === 'mage'
-    ? { count: 5, colors: [C.cloak1, C.cloak1, C.cloak2, C.cloak2], widths: [2, 2, 1, 1], outline: C.out, gravity: 420 }
-    : { count: 7, colors: [C.hairS0, C.hairS0, C.hairS1, C.hairS1, C.hairS2, C.hairS2], widths: [2, 2, 2, 1, 1, 1], outline: C.stone2, gravity: 520 };
+/** 스프링 모양 (hair 슬롯 = 후드 끝자락) */
+export const HERO_SPRING = { count: 5, colors: [C.cloak1, C.cloak1, C.cloak2, C.cloak2], widths: [2, 2, 1, 1], outline: C.out, gravity: 420 };
 
 interface Pose {
   bob: number;
@@ -269,11 +263,7 @@ function sword(b: Px, e: Px, p: Pose) {
     if (t > 3 && t < LEN - 2) e.set(x - nx * 0.9, yy - ny * 0.9, E2);
   }
   if (p.glow) e.disc(hx + dx * LEN, y + dy * LEN, p.glow, E0);
-  if (HERO_STYLE === 'mage') glove(b, e, hx - 1, y - 1);
-  else {
-    b.rect(hx - 1, y - 1, 2, 2, C.leather1);
-    b.set(hx - 1, y - 1, C.leather0);
-  }
+  glove(b, e, hx - 1, y - 1);
 }
 
 /** 원소술사 장갑: 원소 레이어 2×2 + 손끝 피부 1픽셀 */
@@ -306,233 +296,6 @@ function arm(b: Px, sx: number, sy: number, p: Pose, c0: number, c1: number) {
   b.line(sx, sy, hx, hy + p.bob, c1);
   b.line(sx + 1, sy, hx + (hx < sx ? 1 : 0), hy + p.bob - 1, c0);
 }
-
-function legFront(b: Px, x: number, lift: number, dark: boolean, bob: number) {
-  const top = 22 + Math.min(bob, 1);
-  const bottom = 26 - lift - Math.max(0, bob - 1);
-  b.rect(x, top, 2, Math.max(1, bottom - 1 - top), dark ? C.pants1 : C.pants0);
-  b.rect(x - (dark ? 0 : 1), bottom - 1, 3, 2, C.leather1);
-  b.set(x - (dark ? 0 : 1), bottom - 1, C.leather0);
-}
-
-function legSide(b: Px, x: number, lift: number, dark: boolean, bob: number) {
-  const top = 21 + Math.min(bob, 1);
-  const bottom = 26 - lift - Math.max(0, bob - 1);
-  b.rect(x, top, 2, Math.max(1, bottom - 1 - top), dark ? C.pants1 : C.pants0);
-  b.rect(x, bottom - 1, 3, 2, C.leather1);
-  b.set(x, bottom - 1, dark ? C.leather1 : C.leather0);
-}
-
-function drawSide(p: Pose, b: Px, e: Px): Anchor {
-  const y0 = p.bob;
-  const lx = p.lean;
-  // 코트 자락 (뒤)
-  for (let y = 19; y <= 24; y++) {
-    const t = (y - 19) / 5;
-    b.hline(13 + lx - Math.round(t * 2), 15 + lx, y + y0, y > 22 ? C.coat3 : C.coat2);
-  }
-  legSide(b, 15 + p.legB, p.liftB, true, y0);
-  for (let y = 13; y <= 20; y++) {
-    for (let x = 14; x <= 19; x++) {
-      const c = x === 14 ? C.coat2 : x === 18 && y <= 16 ? C.coat0 : C.coat1;
-      b.set(x + lx, y + y0, y === 20 ? C.coat2 : c);
-    }
-  }
-  b.vline(19 + lx, 14 + y0, 18 + y0, C.coat1);
-  b.hline(14 + lx, 19 + lx, 19 + y0, C.leather1);
-  b.set(18 + lx, 19 + y0, C.gold0);
-  e.hline(14 + lx, 18 + lx, 20 + y0, E1);
-  e.set(14 + lx, 20 + y0, E2);
-  legSide(b, 16 + p.legA, p.liftA, false, y0);
-  // 어깨 갑옷 (위쪽이 밝음)
-  b.rect(16 + lx, 13 + y0, 3, 2, C.steel1);
-  b.hline(16 + lx, 18 + lx, 13 + y0, C.steel0);
-  b.set(18 + lx, 14 + y0, C.steel2);
-
-  const hx = 14 + lx;
-  const hy = 6 + y0;
-  b.rect(hx, hy, 7, 3, C.hairS0);
-  b.set(hx + 2, hy - 1, C.hairS0);
-  b.set(hx + 4, hy - 1, C.hairS0);
-  b.set(hx + 3, hy - 2, C.hairS0);
-  b.rect(hx - 1, hy + 1, 1, 3, C.hairS1);
-  b.rect(hx, hy + 3, 2, 4, C.hairS1);
-  b.set(hx, hy + 6, C.hairS2);
-  b.hline(hx + 1, hx + 6, hy + 2, C.hairS1);
-  b.rect(hx + 2, hy + 3, 5, 4, C.skin1);
-  b.hline(hx + 3, hx + 6, hy + 3, C.skin0);
-  b.set(hx + 6, hy + 3, C.hairS0);
-  b.set(hx + 5, hy + 3, C.hairS1);
-  b.set(hx + 7, hy + 5, C.skin1);
-  b.hline(hx + 2, hx + 5, hy + 6, C.skin2);
-  b.set(hx + 2, hy + 4, C.skin2);
-  if (p.hurt) {
-    b.set(hx + 5, hy + 4, C.ink);
-    b.set(hx + 4, hy + 5, C.ink);
-  } else {
-    b.hline(hx + 4, hx + 5, hy + 4, C.ink);
-    b.set(hx + 5, hy + 5, C.ink);
-  }
-  b.rect(hx + 2, hy + 7, 4, 1, C.coat1);
-  e.hline(hx, hx + 6, hy + 2, E0);
-  e.set(hx - 1, hy + 2, E1);
-
-  if (!p.noSword) {
-    arm(b, 17 + lx, 15 + y0, p, C.coat0, C.coat1);
-    smear(e, p);
-    sword(b, e, p);
-  }
-  return { hair: [hx, hy], band: [hx - 1, hy + 2], front: false };
-}
-
-function drawFront(p: Pose, b: Px, e: Px): Anchor {
-  const y0 = p.bob;
-  if (!p.noSword && p.swordBehind) sword(b, e, p);
-  legFront(b, 13, p.liftA, false, y0);
-  legFront(b, 17, p.liftB, true, y0);
-  for (let y = 21; y <= 24; y++) {
-    const w = y - 21;
-    b.hline(11 - (w > 1 ? 1 : 0), 14, y + y0, y > 22 ? C.coat2 : C.coat1);
-    b.hline(17, 20 + (w > 1 ? 1 : 0), y + y0, y > 22 ? C.coat3 : C.coat2);
-  }
-  b.rect(10, 15 + y0, 2, 5, C.coat1);
-  b.vline(10, 15 + y0, 17 + y0, C.coat0);
-  b.rect(10, 20 + y0, 2, 2, C.leather1);
-  for (let y = 13; y <= 20; y++) {
-    for (let x = 12; x <= 19; x++) {
-      let c = x === 12 ? C.coat0 : x >= 18 ? C.coat2 : C.coat1;
-      if (x === 14 && y <= 16) c = C.coat0;
-      if (x === 17 && y <= 16) c = C.coat2;
-      b.set(x, y + y0, c);
-    }
-  }
-  b.rect(15, 13 + y0, 2, 3, C.steel0);
-  b.set(16, 15 + y0, C.steel1);
-  b.set(15, 16 + y0, C.steel2);
-  b.hline(12, 19, 19 + y0, C.leather1);
-  b.rect(15, 19 + y0, 2, 1, C.gold0);
-  e.hline(12, 19, 20 + y0, E1);
-  e.vline(18, 21 + y0, 22 + y0, E2);
-  b.rect(10, 13 + y0, 4, 2, C.steel1);
-  b.hline(10, 13, 13 + y0, C.steel0);
-  b.set(9, 14 + y0, C.steel2);
-
-  const hy = 6 + y0;
-  b.set(14, hy - 2, C.hairS0);
-  b.set(17, hy - 2, C.hairS0);
-  b.hline(13, 14, hy - 1, C.hairS0);
-  b.hline(16, 18, hy - 1, C.hairS0);
-  b.rect(12, hy, 8, 2, C.hairS0);
-  b.hline(11, 20, hy + 1, C.hairS1);
-  b.rect(11, hy + 3, 2, 4, C.hairS1);
-  b.rect(19, hy + 3, 2, 4, C.hairS2);
-  b.set(11, hy + 6, C.hairS2);
-  b.rect(13, hy + 3, 6, 4, C.skin1);
-  b.hline(14, 17, hy + 3, C.skin0);
-  b.hline(13, 15, hy + 3, C.hairS0);
-  b.set(13, hy + 4, C.hairS1);
-  b.set(18, hy + 3, C.hairS1);
-  b.vline(18, hy + 4, hy + 6, C.skin2);
-  b.hline(14, 17, hy + 7, C.skin2);
-  if (p.hurt) {
-    b.hline(14, 15, hy + 5, C.ink);
-    b.hline(17, 18, hy + 5, C.ink);
-  } else {
-    b.hline(14, 15, hy + 4, C.ink);
-    b.hline(17, 18, hy + 4, C.ink);
-    b.set(15, hy + 5, C.ink);
-    b.set(17, hy + 5, C.ink);
-  }
-  e.hline(12, 19, hy + 2, E0);
-  e.set(20, hy + 2, E1);
-
-  if (!p.noSword) {
-    arm(b, 19, 14 + y0, p, C.coat1, C.coat2);
-    smear(e, p);
-    if (!p.swordBehind) sword(b, e, p);
-  }
-  return { hair: [16, hy], band: [20, hy + 2], front: false };
-}
-
-function drawBack(p: Pose, b: Px, e: Px): Anchor {
-  const y0 = p.bob;
-  if (!p.noSword && p.swordBehind) {
-    smear(e, p);
-    sword(b, e, p);
-  }
-  legFront(b, 13, p.liftA, true, y0);
-  legFront(b, 17, p.liftB, true, y0);
-  b.rect(10, 15 + y0, 2, 5, C.coat2);
-  b.rect(10, 20 + y0, 2, 2, C.leather1);
-  for (let y = 13; y <= 24; y++) {
-    for (let x = 12; x <= 19; x++) {
-      if (y >= 21 && (x === 15 || x === 16)) continue;
-      const c = x === 12 ? C.coat1 : x === 19 ? C.coat3 : y >= 21 ? C.coat3 : C.coat2;
-      b.set(x, y + y0, c);
-    }
-  }
-  b.vline(15, 14 + y0, 20 + y0, C.coat3);
-  b.hline(12, 19, 19 + y0, C.leather1);
-  e.hline(12, 19, 20 + y0, E1);
-  b.rect(10, 13 + y0, 4, 2, C.steel1);
-  b.hline(10, 13, 13 + y0, C.steel0);
-  const hy = 6 + y0;
-  b.set(14, hy - 2, C.hairS0);
-  b.set(17, hy - 2, C.hairS0);
-  b.hline(13, 18, hy - 1, C.hairS0);
-  b.rect(11, hy, 10, 4, C.hairS0);
-  b.rect(11, hy + 4, 10, 3, C.hairS1);
-  b.hline(12, 19, hy + 7, C.hairS2);
-  b.set(20, hy + 5, C.hairS2);
-  e.hline(11, 20, hy + 2, E0);
-  if (!p.noSword && !p.swordBehind) {
-    arm(b, 19, 14 + y0, p, C.coat1, C.coat2);
-    smear(e, p);
-    sword(b, e, p);
-  } else if (!p.noSword) b.rect(20, 15 + y0, 2, 4, C.coat2);
-  return { hair: [16, hy + 3], band: [16, hy + 2], front: true };
-}
-
-function drawRoll(i: number, b: Px, e: Px): Anchor {
-  const rot = ((i - 1) / 4) * Math.PI * 2;
-  const cx = 16;
-  const cy = 21;
-  b.disc(cx, cy, 6, (dx, dy) => {
-    let a = Math.atan2(dy, dx) - rot;
-    a = ((a % TAU) + TAU) % TAU;
-    const u = a / TAU;
-    // 빛은 왼쪽 위: 왼쪽 위 = 밝은 색, 오른쪽 아래 = 그림자 색
-    const light = dx + dy < -3 ? 0 : dx + dy > 3 ? 2 : 1;
-    if (u < 0.25) return [C.hairS0, C.hairS1, C.hairS2][light];
-    if (u < 0.8) return [C.coat0, C.coat1, C.coat2][light];
-    return light === 2 ? C.pants1 : C.pants0;
-  });
-  for (let k = -5; k <= 5; k++) {
-    const a = rot + 1.6;
-    const x = Math.round(cx + Math.cos(a) * k);
-    const y = Math.round(cy + Math.sin(a) * k);
-    if (b.get(x, y) !== -1) e.set(x, y, Math.abs(k) > 3 ? E2 : E1);
-  }
-  const ta = rot + 3.4;
-  e.line(cx + Math.cos(ta) * 5, cy + Math.sin(ta) * 4, cx + Math.cos(ta) * 9, cy + Math.sin(ta) * 7, E0);
-  return { hair: [Math.round(cx + Math.cos(rot) * 4), Math.round(cy + Math.sin(rot) * 4)], band: [cx, cy], front: false };
-}
-
-function drawDeathFinal(b: Px, e: Px): Anchor {
-  b.rect(7, 21, 6, 4, C.hairS1);
-  b.rect(9, 22, 3, 3, C.skin1);
-  b.rect(13, 21, 9, 5, C.coat1);
-  b.hline(13, 21, 21, C.coat0);
-  b.rect(22, 22, 5, 3, C.pants0);
-  b.rect(26, 22, 2, 3, C.leather1);
-  e.vline(12, 20, 25, E1);
-  b.set(17, 28, C.gold1);
-  b.rect(18, 27, 1, 3, C.gold0);
-  e.hline(19, 30, 28, E1);
-  e.hline(19, 28, 27, E0);
-  return { hair: [7, 22], band: [8, 21], front: false };
-}
-
 
 // ═══════════════════════════ 후드 원소술사 ═══════════════════════════
 // 빛은 왼쪽 위. 본체는 저채도(남색 망토·후드, 갈색 옷), 원소 레이어 = 망토 안감·장갑·눈·허리띠·검날
@@ -747,14 +510,12 @@ export function buildHeroSprites(scene: Phaser.Scene): void {
         const e = new Px(32, 32);
         const pose = poseFor(dir, a, i);
         let anchor: Anchor;
-        const mage = HERO_STYLE === 'mage';
-        const front = mage ? drawMageFront : drawFront;
-        if (a === 'roll' && i > 0) anchor = mage ? drawMageRoll(i, b, e) : drawRoll(i, b, e);
-        else if (a === 'death' && i === 2) anchor = mage ? drawMageDeathFinal(b, e) : drawDeathFinal(b, e);
-        else if (a === 'death') anchor = front(poseFor('down', 'death', i), b, e);
-        else if (dir === 'side') anchor = mage ? drawMageSide(pose, b, e) : drawSide(pose, b, e);
-        else if (dir === 'down') anchor = front(pose, b, e);
-        else anchor = mage ? drawMageBack(pose, b, e) : drawBack(pose, b, e);
+        if (a === 'roll' && i > 0) anchor = drawMageRoll(i, b, e);
+        else if (a === 'death' && i === 2) anchor = drawMageDeathFinal(b, e);
+        else if (a === 'death') anchor = drawMageFront(poseFor('down', 'death', i), b, e);
+        else if (dir === 'side') anchor = drawMageSide(pose, b, e);
+        else if (dir === 'down') anchor = drawMageFront(pose, b, e);
+        else anchor = drawMageBack(pose, b, e);
         outline(b, e);
         bodies.push(b);
         elems.push(e);
