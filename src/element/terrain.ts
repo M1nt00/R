@@ -24,6 +24,8 @@ const ASH_REGROW = 18;
 interface PuddleInst {
   tiles: number[];
   t: number;
+  /** 개수 제한은 같은 그룹끼리만 (물 스킬 'skill', 화학 반응으로 생긴 물 'chem') */
+  group: string;
 }
 
 /**
@@ -109,8 +111,8 @@ export class Terrain {
     return { kind: this.kindAt(i), fx: this.fx[i], dirX: this.dirX[i], dirY: this.dirY[i] };
   }
 
-  /** 물 스킬: 물웅덩이 장판 생성. cap개를 넘으면 오래된 것부터 마름 */
-  addPuddle(x: number, y: number, radius: number, duration: number, cap = 1): void {
+  /** 물웅덩이 장판 생성. 같은 그룹이 cap개를 넘으면 오래된 것부터 마름 */
+  addPuddle(x: number, y: number, radius: number, duration: number, cap = 1, group = 'skill'): void {
     const tiles: number[] = [];
     this.forTilesInCircle(x, y, radius, (i) => {
       const b = this.base[i];
@@ -120,9 +122,11 @@ export class Terrain {
         tiles.push(i);
       }
     });
-    this.puddles.push({ tiles, t: duration });
-    while (this.puddles.length > cap) {
-      const old = this.puddles.shift()!;
+    this.puddles.push({ tiles, t: duration, group });
+    const same = this.puddles.filter((p) => p.group === group);
+    while (same.length > cap) {
+      const old = same.shift()!;
+      this.puddles.splice(this.puddles.indexOf(old), 1);
       for (const i of old.tiles) {
         if (!this.puddles.some((p) => p.tiles.includes(i))) {
           this.tempPuddle[i] = 0;
@@ -130,6 +134,19 @@ export class Terrain {
         }
       }
     }
+  }
+
+  /** 반응으로 물이 없어짐 (임시 웅덩이만 마름, 원래 있던 웅덩이 지형은 남음) */
+  drainPuddle(x: number, y: number, radius: number): void {
+    const drained = new Set<number>();
+    this.forTilesInCircle(x, y, radius, (i) => {
+      if (this.tempPuddle[i] <= 0) return;
+      this.tempPuddle[i] = 0;
+      drained.add(i);
+      if (this.base[i] !== 'puddle' && (this.fx[i] === 'electric' || this.fx[i] === 'ice')) this.fx[i] = 'none';
+    });
+    for (const p of this.puddles) p.tiles = p.tiles.filter((i) => !drained.has(i));
+    this.puddles = this.puddles.filter((p) => p.tiles.length > 0);
   }
 
   /** 원소 공격이 지형에 닿았을 때 — 지형 반응 */

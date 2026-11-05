@@ -10,6 +10,8 @@ import { BOONS, RELICS, REGION, getRun, type BoonDef, type RelicDef } from '../r
 import { MASTERY_DESC, REACTION_NAME, reactionLevel } from '../run/mods';
 import { META_DEF, buySecondary, buyStat, meta, primaryFor, saveMeta, secondaryStatus, statCost, statLevel } from '../run/meta';
 import { playSfx, toggleMute } from '../audio/sfx';
+import { CHEM_COLOR, REAGENTS, REAGENT_KEY, THROW_CD, type ChemEvent, type ChemTerm } from '../chem/chemistry';
+import { formulaLine, joinTerms, type FormulaPiece, type FormulaText } from '../chem/formula';
 
 const W = VIEW_W;
 const H = VIEW_H;
@@ -17,6 +19,8 @@ const SLOT = 24;
 const GAP = 3;
 const SLOT_X = 4;
 const DARK = '#181425';
+/** 위 가운데 화학식 줄의 y */
+const CHEM_Y = 36;
 
 let titleShown = false;
 
@@ -39,6 +43,9 @@ export class UIScene extends Phaser.Scene {
   private texts: Record<string, Phaser.GameObjects.Text> = {};
   private slotIcons: Phaser.GameObjects.Image[] = [];
   private relicIcons: Phaser.GameObjects.Image[] = [];
+  private chemLine: Phaser.GameObjects.Container | null = null;
+  private chemRuns: FormulaText[] = [];
+  private chemGen = 0;
 
   constructor() {
     super('UI');
@@ -110,6 +117,10 @@ export class UIScene extends Phaser.Scene {
       this.slotLayer.add(t(`key${i}`, 0, 0, 8, toCss(E32.steel)));
       this.slotLayer.add(t(`cd${i}`, 0, 0, 8).setOrigin(0.5));
     });
+    REAGENTS.forEach((rg, i) => {
+      this.slotLayer.add(t(`rkey${i}`, 0, 0, 8, toCss(E32.steel)));
+      this.slotLayer.add(t(`rsym${i}`, 0, 0, 12, toCss(CHEM_COLOR[rg])).setOrigin(0.5));
+    });
     for (const k of ['skill', 'emp', 'absorb']) this.slotLayer.add(this.texts[k]);
     this.banner = this.txt(W / 2, 70, '', 12).setOrigin(0.5).setAlpha(0);
 
@@ -122,6 +133,7 @@ export class UIScene extends Phaser.Scene {
     });
     this.game.events.on('ui:open', (req: UiRequest) => this.handleRequest(req));
     this.game.events.on('roomEnter', () => this.refreshRelicIcons());
+    this.game.events.on('chem', (ev: ChemEvent) => this.onChem(ev));
 
     const kb = this.input.keyboard!;
     kb.on('keydown', (ev: KeyboardEvent) => {
@@ -219,7 +231,11 @@ export class UIScene extends Phaser.Scene {
           this.tweens.add({ targets: ic, y: 104, yoyo: true, repeat: -1, duration: 700, delay: i * 140, ease: 'Stepped', easeParams: [4] });
         });
         c.add(this.txt(W / 2, 132, '원소 넷을 바꿔 끼우며 반응을 꽂는 액션 로그라이트', 10, toCss(E32.silver)).setOrigin(0.5));
-        const lines = ['WASD 이동 · 마우스 조준 · 좌클릭 공격 · 우클릭 스킬', '1 불 · 2 물 · 3 바람 · 4 번개 · 스페이스 구르기 · Q 포션 · E 상호작용'];
+        const lines = [
+          'WASD 이동 · 마우스 조준 · 좌클릭 공격 · 우클릭 스킬',
+          '1 불 · 2 물 · 3 바람 · 4 번개 · 스페이스 구르기 · Q 포션 · E 상호작용',
+          'Z 수소(H) · X 산소(O) · C 나트륨(Na) 던지기',
+        ];
         c.add(this.txt(W / 2, 160, lines.join('\n'), 8, toCss(E32.white)).setOrigin(0.5).setAlign('center'));
         const go = this.txt(W / 2, 204, '클릭해서 시작', 12, toCss(E32.yellow)).setOrigin(0.5);
         this.tweens.add({ targets: go, alpha: 0.3, yoyo: true, repeat: -1, duration: 600, ease: 'Stepped', easeParams: [2] });
@@ -464,6 +480,7 @@ export class UIScene extends Phaser.Scene {
           '좌클릭 기본 공격 · 우클릭 원소 스킬',
           '1 불 · 2 물 · 3 바람 · 4 번개',
           '스페이스 구르기 · Q 포션 · E 상호작용',
+          'Z H · X O · C Na 던지기 (같은 구름에)',
           'H/ESC 일시정지 · M 소리',
           '',
           '[ 핵심 규칙 ]',
@@ -595,9 +612,33 @@ export class UIScene extends Phaser.Scene {
       gs.fillStyle(E32.silver, 1);
       gs.fillRect(SLOT_X, baseY + SLOT + 2, Math.round(barW * (p.switchCd / 0.5)), 1);
     }
+    // 시약 슬롯 (원소 슬롯 오른쪽): Z 수소 · X 산소 · C 나트륨
+    const rx0 = SLOT_X + barW + 8;
+    const throwCd = r.chem?.throwCd ?? 0;
+    REAGENTS.forEach((rg, i) => {
+      const x = rx0 + i * (SLOT + GAP);
+      const y = baseY;
+      const col = CHEM_COLOR[rg];
+      gs.fillStyle(E32.black, 1);
+      gs.fillRect(x - 1, y - 1, SLOT + 2, SLOT + 2);
+      gs.fillStyle(E32.night, 1);
+      gs.fillRect(x, y, SLOT, SLOT);
+      gs.fillStyle(col, 0.7);
+      gs.fillRect(x, y, SLOT, 1);
+      gs.fillRect(x, y + SLOT - 1, SLOT, 1);
+      gs.fillRect(x, y, 1, SLOT);
+      gs.fillRect(x + SLOT - 1, y, 1, SLOT);
+      if (throwCd > 0) {
+        gs.fillStyle(E32.black, 0.65);
+        gs.fillRect(x + 1, y + 1, SLOT - 2, Math.round((SLOT - 2) * Math.min(1, throwCd / THROW_CD)));
+      }
+      T[`rkey${i}`].setPosition(x + 2, y + 1).setText(REAGENT_KEY[rg]);
+      T[`rsym${i}`].setPosition(x + SLOT / 2, y + SLOT / 2 + 2).setText(rg);
+    });
+    const reagentW = REAGENTS.length * (SLOT + GAP) - GAP;
     T.skill.setText(`우클릭: ${SKILL_NAME[p.element]}`);
     if (p.absorbed) {
-      const ax = SLOT_X + barW + 8;
+      const ax = rx0 + reagentW + 8;
       const ay = baseY + SLOT / 2;
       gs.fillStyle(ELEMENT_COLOR[p.absorbed]);
       gs.fillRect(ax - 3, ay - 3, 7, 7);
@@ -607,7 +648,7 @@ export class UIScene extends Phaser.Scene {
     const cam = r.cameras.main;
     const psx = p.x - cam.worldView.x;
     const psy = p.y - cam.worldView.y;
-    const behind = psx < SLOT_X + barW + 60 && psy > baseY - 30;
+    const behind = psx < rx0 + reagentW + 30 && psy > baseY - 30;
     this.slotLayer.setAlpha(Phaser.Math.Linear(this.slotLayer.alpha, behind ? 0.3 : 1, 0.2));
 
     // 방 이름·진행도·목표 (오른쪽 위)
@@ -657,6 +698,155 @@ export class UIScene extends Phaser.Scene {
       T.bossShield.setVisible(false);
     }
     T.hint.setText(r.mode === 'hub' ? 'T 2차 반응 체험 · H 일시정지 · M 소리' : 'H 일시정지 · M 소리');
+  }
+
+  // ───────────────────────── 화학식 (위 가운데) ─────────────────────────
+
+  private onChem(ev: ChemEvent): void {
+    this.chemGen++;
+    if (ev.type === 'clear') this.chemClear(true);
+    else if (ev.type === 'state') this.chemState(ev.terms);
+    else this.chemEquation(ev);
+  }
+
+  /** 지금 화학식 이벤트가 그대로일 때만 실행 (새 이벤트가 오면 예약된 연출은 버림) */
+  private chemLater(ms: number, fn: () => void): void {
+    const gen = this.chemGen;
+    this.time.delayedCall(ms, () => {
+      if (gen === this.chemGen) fn();
+    });
+  }
+
+  private chemClear(fade: boolean): void {
+    const line = this.chemLine;
+    this.chemLine = null;
+    this.chemRuns = [];
+    if (!line) return;
+    this.tweens.killTweensOf(line);
+    for (const ch of line.list) this.tweens.killTweensOf(ch);
+    if (fade) this.tweens.add({ targets: line, alpha: 0, duration: 250, onComplete: () => line.destroy() });
+    else line.destroy();
+  }
+
+  private chemBuild(pieces: FormulaPiece[]) {
+    const b = formulaLine(this, pieces, 'big');
+    b.c.setDepth(-1).setPosition(Math.round(W / 2 - b.w / 2), CHEM_Y);
+    this.chemLine = b.c;
+    this.chemRuns = b.pieces.flatMap((p) => p.texts);
+    return b;
+  }
+
+  /** 지금 떠 있는 화학식 글자들의 화면 x (다음 화학식이 그 자리에서 이어지게) */
+  private chemOldRuns(): { key: string; abs: number }[] {
+    const x0 = this.chemLine?.x ?? 0;
+    return this.chemRuns.map((r) => ({ key: r.key, abs: x0 + r.t.x }));
+  }
+
+  /** 글자 조각이 위에서 톡 떨어짐 — 흰색으로 번쩍였다가 제 색으로. slam = 반응 결과가 쾅 */
+  private chemDrop(ft: FormulaText, delayMs: number, slam = false): void {
+    const t = ft.t;
+    const y0 = t.y;
+    t.setAlpha(0).setY(y0 - (slam ? 14 : 8));
+    this.tweens.add({
+      targets: t,
+      alpha: 1,
+      y: y0,
+      delay: delayMs,
+      duration: slam ? 120 : 220,
+      ease: slam ? 'Quad.In' : 'Back.Out',
+      onStart: () => t.setColor('#ffffff'),
+      onUpdate: () => t.setY(Math.round(t.y)),
+      onComplete: () =>
+        this.time.delayedCall(slam ? 140 : 80, () => {
+          if (t.scene) t.setColor(ft.color);
+        }),
+    });
+  }
+
+  /** 지금 상태 표시 (H → H₂ 처럼 바뀌면 같은 앞부분은 그대로, 새 글자만 떨어짐) */
+  private chemState(terms: ChemTerm[]): void {
+    const old = this.chemOldRuns();
+    this.chemClear(false);
+    const b = this.chemBuild(joinTerms(terms, CHEM_COLOR.op));
+    const runs = this.chemRuns;
+    let k = 0;
+    while (k < runs.length && k < old.length && runs[k].key === old[k].key) k++;
+    if (k > 0) {
+      const finalX = b.c.x;
+      b.c.x = Math.round(old[0].abs - runs[0].t.x);
+      this.tweens.add({ targets: b.c, x: finalX, duration: 160, ease: 'Cubic.Out', onUpdate: () => b.c.setX(Math.round(b.c.x)) });
+    }
+    runs.slice(k).forEach((r, i) => this.chemDrop(r, i * 60));
+    playSfx('tick');
+  }
+
+  /** 반응식: 왼쪽 항이 하나씩 → 화살표 → 결과가 쾅 → 잠깐 뒤 결과만 남김 */
+  private chemEquation(ev: Extract<ChemEvent, { type: 'equation' }>): void {
+    const old = this.chemOldRuns();
+    this.chemClear(false);
+    const lhs = joinTerms(ev.lhs, CHEM_COLOR.op);
+    const arrowIdx = lhs.length;
+    const b = this.chemBuild([...lhs, { f: '→', color: E32.silver, op: true }, ...joinTerms(ev.rhs, CHEM_COLOR.op)]);
+    const line = b.c;
+    const finalX = line.x;
+
+    // 첫 항: 방금 떠 있던 화학식(H₂ 등)이 뒷부분과 같으면 그 자리에서 미끄러져 오고, 앞의 계수만 새로 떨어짐
+    const p0 = b.pieces[0].texts;
+    const m = old.length;
+    const tail = m > 0 && m <= p0.length && old.every((r, i) => r.key === p0[p0.length - m + i].key);
+    if (tail) {
+      line.x = Math.round(old[0].abs - p0[p0.length - m].t.x);
+      this.tweens.add({ targets: line, x: finalX, duration: 180, ease: 'Cubic.Out', onUpdate: () => line.setX(Math.round(line.x)) });
+      p0.slice(0, p0.length - m).forEach((r, i) => this.chemDrop(r, 80 + i * 40));
+    } else p0.forEach((r, i) => this.chemDrop(r, i * 40));
+
+    // 나머지 왼쪽 항
+    let at = 140;
+    for (let i = 1; i < arrowIdx; i++) {
+      b.pieces[i].texts.forEach((r, j) => this.chemDrop(r, at + j * 30));
+      this.chemLater(at, () => playSfx('tick'));
+      at += 110;
+    }
+    const reveal = ev.revealAt * 1000;
+
+    // 지글거리는 반응(나트륨): 결과가 나올 때까지 왼쪽 항이 떨림
+    if (ev.fizz) {
+      const lhsTexts = b.pieces.slice(0, arrowIdx).flatMap((p) => p.texts);
+      const base = lhsTexts.map((r) => r.t.x);
+      const shake = this.time.addEvent({
+        delay: 45,
+        loop: true,
+        callback: () => {
+          if (!line.scene) return shake.remove();
+          lhsTexts.forEach((r, i) => r.t.setX(base[i] + Phaser.Math.Between(-1, 1)));
+        },
+      });
+      this.time.delayedCall(reveal, () => {
+        shake.remove();
+        lhsTexts.forEach((r, i) => {
+          if (r.t.scene) r.t.setX(base[i]);
+        });
+      });
+    }
+
+    // 화살표 → 오른쪽 항
+    const arrowAt = Math.max(at, reveal - 110);
+    b.pieces[arrowIdx].texts.forEach((r) => this.chemDrop(r, arrowAt));
+    this.chemLater(arrowAt, () => playSfx('tick'));
+    for (let i = arrowIdx + 1; i < b.pieces.length; i++) {
+      b.pieces[i].texts.forEach((r) => this.chemDrop(r, reveal + (i - arrowIdx - 1) * 60, true));
+    }
+    this.chemLater(reveal + 120, () => {
+      playSfx('formula');
+      this.tweens.add({ targets: line, y: CHEM_Y + 2, duration: 50, yoyo: true, onComplete: () => line.setY(CHEM_Y) });
+    });
+
+    // 잠깐 보여준 뒤 결과 화학식만 남김
+    this.chemLater(reveal + 1800, () => {
+      this.chemClear(true);
+      const result = ev.result;
+      if (result) this.chemLater(260, () => this.chemState(result));
+    });
   }
 
   private objective(r: RoomScene): string {

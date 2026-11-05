@@ -146,6 +146,33 @@ export function playSfx(name: string): void {
       tone(c, 1200, 900, 0.06, 'square', 0.08);
       noise(c, 0.05, 0.3, 4000, 2000, 2, 'highpass');
       break;
+    case 'throw':
+      noise(c, 0.12, 0.22, 700, 2200, 1.2);
+      break;
+    case 'glass':
+      tone(c, 3400, 2600, 0.07, 'triangle', 0.1);
+      tone(c, 4300, 3800, 0.06, 'sine', 0.07, 0.03);
+      noise(c, 0.09, 0.22, 7000, 4500, 2, 'highpass');
+      break;
+    case 'gas':
+      noise(c, 0.28, 0.22, 500, 260, 0.8);
+      break;
+    case 'fizz':
+      noise(c, 0.7, 0.35, 6500, 2500, 1, 'highpass');
+      tone(c, 900, 1400, 0.6, 'triangle', 0.04);
+      break;
+    case 'tick':
+      tone(c, 880, 880, 0.035, 'square', 0.04);
+      break;
+    case 'formula':
+      tone(c, 660, 990, 0.1, 'triangle', 0.09);
+      tone(c, 990, 1480, 0.16, 'triangle', 0.07, 0.07);
+      break;
+    case 'kaboom':
+      noise(c, 0.7, 0.9, 1400, 50, 0.7, 'lowpass');
+      tone(c, 95, 30, 0.55, 'sine', 0.55);
+      noise(c, 0.25, 0.4, 5000, 1500, 1, 'highpass', 0.02);
+      break;
     case 'shatter':
       noise(c, 0.4, 0.6, 6000, 800, 1, 'highpass');
       tone(c, 2000, 400, 0.3, 'triangle', 0.15);

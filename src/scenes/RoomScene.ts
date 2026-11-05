@@ -10,6 +10,7 @@ import { Lighting } from '../combat/lighting';
 import { Hitstop, Scheduler } from '../combat/hitstop';
 import { FieldSystem } from '../combat/fields';
 import { ProjectileSystem } from '../combat/projectiles';
+import { ChemSystem } from '../chem/chemistry';
 import { Player, type PlayerStats } from '../entities/player';
 import { Enemy, ENEMY_DEFS, type EnemyKind, type EnemyOpts } from '../entities/enemy';
 import { Golem } from '../entities/boss';
@@ -90,6 +91,7 @@ export class RoomScene extends Phaser.Scene {
   lighting!: Lighting;
   fields!: FieldSystem;
   projectiles!: ProjectileSystem;
+  chem!: ChemSystem;
   scheduler!: Scheduler;
   hitstop!: Hitstop;
   run: RunState | null = null;
@@ -172,6 +174,7 @@ export class RoomScene extends Phaser.Scene {
     this.engine.secondaryUnlocked = new Set(meta.secondary);
     this.fields = new FieldSystem(this);
     this.projectiles = new ProjectileSystem(this);
+    this.chem = new ChemSystem(this);
     this.add.image(0, 0, 'vignette').setOrigin(0).setDepth(DEPTH.vignette).setScrollFactor(0);
 
     this.walls = this.physics.add.staticGroup();
@@ -509,6 +512,7 @@ export class RoomScene extends Phaser.Scene {
       this.boss?.update(dt);
       for (const d of this.dummies) d.update(dt);
       this.projectiles.update(dt);
+      this.chem.update(dt);
       for (const p of this.pickups) p.update(dt);
       this.pickups = this.pickups.filter((p) => p.alive);
       this.lighting.update(dt);
@@ -526,6 +530,7 @@ export class RoomScene extends Phaser.Scene {
     for (const d of this.doors) d.update(this.gameTime);
     this.terrain.draw(this.gameTime);
     this.fields.draw(this.gameTime);
+    this.chem.draw(this.gameTime);
     this.updateInteraction();
     this.checkDoors();
     this.renderLights();
@@ -591,6 +596,7 @@ export class RoomScene extends Phaser.Scene {
     this.terrain.emitLights(this.lighting, t);
     this.fields.emitLights();
     this.projectiles.emitLights();
+    this.chem.emitLights();
     this.lighting.render();
   }
 

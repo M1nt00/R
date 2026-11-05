@@ -265,6 +265,13 @@ export class Player extends Actor {
     this.pickAnim(moving);
   }
 
+  /** 시약 던지기 동작 (시전 동작 재사용) */
+  throwPose(): void {
+    if (this.dead || this.rollT > 0) return;
+    this.startAction('cast');
+    this.lockT = Math.max(this.lockT, 0.08);
+  }
+
   /** 내려베기 ↔ 올려베기 번갈아 */
   nextSwing(): SwingAnim {
     this.swingFlip = !this.swingFlip;
