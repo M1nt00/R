@@ -161,6 +161,13 @@ export function playSfx(name: string): void {
       noise(c, 0.7, 0.35, 6500, 2500, 1, 'highpass');
       tone(c, 900, 1400, 0.6, 'triangle', 0.04);
       break;
+    case 'flame':
+      noise(c, 0.16, 0.16, 900, 500, 0.6, 'lowpass');
+      noise(c, 0.07, 0.05, 3500, 2500, 1, 'highpass', 0.03);
+      break;
+    case 'ignite':
+      noise(c, 0.3, 0.5, 250, 1400, 0.8);
+      break;
     case 'tick':
       tone(c, 880, 880, 0.035, 'square', 0.04);
       break;

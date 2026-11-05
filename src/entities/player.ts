@@ -5,7 +5,7 @@ import type { Element } from '../element/types';
 import { ELEMENT_COLOR, ELEMENT_LIGHT, E32, scaleColor } from '../art/palette';
 import type { HitInfo, HitResult } from '../combat/damage';
 import { heroOriginY } from '../art/customArt';
-import { HERO_ANIMS, HERO_ANCHORS, HERO_SOURCE, HERO_SPRING, SWING_HIT_DELAY, type Dir } from '../art/heroSprites';
+import { HERO_ANIMS, HERO_ANCHORS, HERO_SOURCE, HERO_SPRING, type Dir } from '../art/heroSprites';
 import { SpringChain } from './spring';
 import { DEPTH } from '../config';
 import { playSfx } from '../audio/sfx';
@@ -15,11 +15,6 @@ const ROLL_SPEED = 230;
 const ROLL_TIME = 0.3; // 무적 0.3초
 const ROLL_RECHARGE = 1.1;
 const HURT_INVULN = 0.6;
-/** 좌클릭 검 휘두르기 (원소 없음): 내려베기 ↔ 올려베기 번갈아 */
-const SWING_RANGE = 28;
-const SWING_HALF = 1.15;
-const SWING_CD = 0.3;
-const SWING_DAMAGE = 5;
 
 type Keys = Record<'W' | 'A' | 'S' | 'D' | 'SPACE' | 'Q', Phaser.Input.Keyboard.Key>;
 type SwingAnim = 'attack' | 'attack2' | 'cast';
@@ -36,7 +31,6 @@ export interface PlayerStats {
 export class Player extends Actor {
   /** 망토 안감·장갑·검날(원소 레이어) 색. 원소 전환은 지금 없음 */
   element: Element = 'fire';
-  attackCd = 0;
   lockT = 0;
   atkMult: number;
   speedMult: number;
@@ -52,7 +46,6 @@ export class Player extends Actor {
   private hurtAnimT = 0;
   private actionT = 0;
   private action: SwingAnim = 'attack';
-  private swingFlip = false;
   private dir: Dir = 'down';
   private stepT = 0;
   private deathT = 0;
@@ -112,7 +105,6 @@ export class Player extends Actor {
       return;
     }
     this.baseUpdate(dt);
-    this.attackCd = Math.max(0, this.attackCd - dt);
     this.lockT = Math.max(0, this.lockT - dt);
     this.hurtInvulnT = Math.max(0, this.hurtInvulnT - dt);
     this.hurtAnimT = Math.max(0, this.hurtAnimT - dt);
@@ -155,8 +147,6 @@ export class Player extends Actor {
         this.s.vfx.dust(this.x, this.y, 5);
         playSfx('roll');
       }
-      const ptr = this.s.input.activePointer;
-      if (this.rollT <= 0 && this.s.combatEnabled && ptr.leftButtonDown() && this.attackCd <= 0) this.swing();
     }
 
     let vx: number;
@@ -201,30 +191,11 @@ export class Player extends Actor {
     this.lockT = Math.max(this.lockT, 0.08);
   }
 
-  /** 좌클릭: 원소 없이 그냥 베기. 예비동작이 끝나고 칼이 내려오는 순간에 판정 */
-  private swing(): void {
-    const s = this.s;
-    const a = this.aimAngle;
-    const anim = this.nextSwing();
-    this.startAction(anim);
-    this.attackCd = SWING_CD;
-    this.lockT = 0.14;
-    s.scheduler.after(SWING_HIT_DELAY, () => {
-      if (this.dead) return;
-      s.vfx.slash(this.x, this.y - 8, a, SWING_RANGE, SWING_HALF, E32.silver, false, anim === 'attack2');
-      this.lunge(50);
-      for (const t of s.combat.inArc(this.x, this.y, SWING_RANGE, a, SWING_HALF, 'enemy')) {
-        s.combat.hit(t, { damage: SWING_DAMAGE * this.atkMult, knockback: 80, fromX: this.x, fromY: this.y, hitstop: 0.06 });
-        s.vfx.spark(t.x, t.y - 8, E32.white, 4, 60, 40);
-      }
-      playSfx('slash');
-    });
-  }
-
-  /** 내려베기 ↔ 올려베기 번갈아 */
-  private nextSwing(): SwingAnim {
-    this.swingFlip = !this.swingFlip;
-    return this.swingFlip ? 'attack' : 'attack2';
+  /** 화염방사: 시전 자세를 끝 프레임에서 유지 */
+  firePose(): void {
+    if (this.dead || this.rollT > 0) return;
+    if (this.action !== 'cast' || this.actionT <= 0) this.startAction('cast');
+    this.actionT = Math.max(this.actionT, 0.1);
   }
 
   private startAction(anim: SwingAnim) {
@@ -262,11 +233,6 @@ export class Player extends Actor {
       this.trailT = 0.04;
       this.s.vfx.afterimage(this, color);
     }
-  }
-
-  lunge(strength: number): void {
-    this.impulse.x += Math.cos(this.aimAngle) * strength;
-    this.impulse.y += Math.sin(this.aimAngle) * strength;
   }
 
   heal(n: number): void {

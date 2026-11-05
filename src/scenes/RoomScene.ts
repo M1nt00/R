@@ -11,6 +11,7 @@ import { Hitstop, Scheduler } from '../combat/hitstop';
 import { FieldSystem } from '../combat/fields';
 import { ProjectileSystem } from '../combat/projectiles';
 import { ChemSystem } from '../chem/chemistry';
+import { Flamethrower } from '../chem/flamethrower';
 import { Player, type PlayerStats } from '../entities/player';
 import { Enemy, ENEMY_DEFS, type EnemyKind, type EnemyOpts } from '../entities/enemy';
 import { Golem } from '../entities/boss';
@@ -92,6 +93,7 @@ export class RoomScene extends Phaser.Scene {
   fields!: FieldSystem;
   projectiles!: ProjectileSystem;
   chem!: ChemSystem;
+  flame!: Flamethrower;
   scheduler!: Scheduler;
   hitstop!: Hitstop;
   run: RunState | null = null;
@@ -175,6 +177,7 @@ export class RoomScene extends Phaser.Scene {
     this.fields = new FieldSystem(this);
     this.projectiles = new ProjectileSystem(this);
     this.chem = new ChemSystem(this);
+    this.flame = new Flamethrower(this);
     this.add.image(0, 0, 'vignette').setOrigin(0).setDepth(DEPTH.vignette).setScrollFactor(0);
 
     this.walls = this.physics.add.staticGroup();
@@ -510,6 +513,7 @@ export class RoomScene extends Phaser.Scene {
       this.boss?.update(dt);
       for (const d of this.dummies) d.update(dt);
       this.projectiles.update(dt);
+      this.flame.update(dt);
       this.chem.update(dt);
       for (const p of this.pickups) p.update(dt);
       this.pickups = this.pickups.filter((p) => p.alive);
@@ -529,6 +533,7 @@ export class RoomScene extends Phaser.Scene {
     this.terrain.draw(this.gameTime);
     this.fields.draw(this.gameTime);
     this.chem.draw(this.gameTime);
+    this.flame.draw();
     this.updateInteraction();
     this.checkDoors();
     this.renderLights();
@@ -595,6 +600,7 @@ export class RoomScene extends Phaser.Scene {
     this.fields.emitLights();
     this.projectiles.emitLights();
     this.chem.emitLights();
+    this.flame.emitLights();
     this.lighting.render();
   }
 
