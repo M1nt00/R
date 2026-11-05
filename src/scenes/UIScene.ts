@@ -493,7 +493,7 @@ export class UIScene extends Phaser.Scene {
           right.push(boons.length ? boons.join(', ') : '반응 강화 없음');
           const rel = RELICS.filter((r) => run.relics.includes(r.id)).map((r) => r.name);
           right.push(rel.length ? '유물: ' + rel.join(', ') : '유물 없음');
-        } else right.push('성소에 있어요');
+        } else right.push('허수아비 연습 중');
         c.add(this.txt(250, 34, right.join('\n'), 8).setWordWrapWidth(210));
         this.button(c, W / 2 - 34, H - 28, 68, 16, '계속하기', () => this.closeOverlay(), true, E32.silver);
       },
@@ -660,7 +660,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   private objective(r: RoomScene): string {
-    if (r.mode === 'hub') return r.trial ? '2차 반응 체험 중\n허수아비에 연계해 보세요' : '포탈로 출발 · 제단에서 성장\n허수아비로 연습';
+    if (r.mode === 'hub') return r.trial ? '2차 반응 체험 중\n허수아비에 연계해 보세요' : '허수아비로 연습';
     if (r.state === 'dead') return '';
     if (r.mode === 'boss') return r.state === 'victory' ? '승리!' : '';
     if (r.state === 'play') return `웨이브 ${r.waveIdx}/${r.waveCount} · 남은 적 ${r.enemies.filter((e) => !e.dead).length}`;

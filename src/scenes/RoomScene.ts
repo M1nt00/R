@@ -261,7 +261,6 @@ export class RoomScene extends Phaser.Scene {
       case 'hub':
         playMusic('hub');
         this.setupHub();
-        this.scheduler.after(0.4, () => this.banner('원소의 성소', 0xc0cbdc));
         break;
       case 'combat':
       case 'elite':
