@@ -1,0 +1,80 @@
+{
+  "rules": {
+    "attachDuration": 3.0,
+    "empoweredAttachMult": 2.0,
+    "empoweredDamageMult": 1.5,
+    "stackWindow": 3.0,
+    "stackCount": 3,
+    "residueDuration": 2.0,
+    "maxReactionsPerFrame": 12,
+    "playerDamageMult": 0.5,
+    "playerControlMult": 0.35
+  },
+  "residues": {
+    "moist": "습기",
+    "charged": "대전",
+    "ice": "얼음",
+    "flames": "불길",
+    "overheat": "과열",
+    "vortex": "소용돌이"
+  },
+  "primary": [
+    { "id": "vaporize", "name": "증발", "tier": 1, "inputs": ["fire", "water"], "color": "#feae34", "sfx": "sizzle",
+      "effect": { "type": "damage", "damage": 26 }, "leaves": "moist" },
+    { "id": "electro_charged", "name": "감전", "tier": 1, "inputs": ["water", "lightning"], "color": "#c0cbdc", "sfx": "zap",
+      "effect": { "type": "chain", "damage": 9, "targets": 3, "range": 72 }, "leaves": "charged" },
+    { "id": "freeze", "name": "빙결", "tier": 1, "inputs": ["water", "wind"], "color": "#ffffff", "sfx": "freeze",
+      "effect": { "type": "freeze", "damage": 4, "duration": 2.0, "bossDuration": 0.5 }, "leaves": "ice" },
+    { "id": "firestorm", "name": "화염폭풍", "tier": 1, "inputs": ["fire", "wind"], "color": "#f77622", "sfx": "whoosh",
+      "effect": { "type": "field", "kind": "flames", "damage": 4, "radius": 30, "duration": 3.0, "tick": 0.5, "attach": "fire" }, "leaves": "flames" },
+    { "id": "overload", "name": "과부하", "tier": 1, "inputs": ["lightning", "fire"], "color": "#ead4aa", "sfx": "boom",
+      "effect": { "type": "explosion", "damage": 12, "radius": 34, "knockback": 260 }, "leaves": "overheat" },
+    { "id": "thunderwind", "name": "뇌풍", "tier": 1, "inputs": ["wind", "lightning"], "color": "#ead4aa", "sfx": "vortex",
+      "effect": { "type": "pull", "damage": 5, "radius": 80 }, "leaves": "vortex" }
+  ],
+  "stack": [
+    { "id": "scorch", "name": "작열", "tier": 0, "element": "fire", "color": "#f77622", "sfx": "boom",
+      "effect": { "type": "explosion", "damage": 8, "radius": 18, "knockback": 60 } },
+    { "id": "drench", "name": "침수", "tier": 0, "element": "water", "color": "#0099db", "sfx": "splash",
+      "effect": { "type": "slow", "factor": 0.35, "duration": 3.0 } },
+    { "id": "gale", "name": "돌풍", "tier": 0, "element": "wind", "color": "#63c74d", "sfx": "whoosh",
+      "effect": { "type": "knockback", "damage": 3, "knockback": 420 } },
+    { "id": "overcurrent", "name": "과전류", "tier": 0, "element": "lightning", "color": "#fee761", "sfx": "zap",
+      "effect": { "type": "stun", "damage": 3, "duration": 1.0, "bossDuration": 0.3 } }
+  ],
+  "secondary": [
+    { "id": "thaw_burst", "name": "해빙 폭발", "tier": 2, "residue": "ice", "element": "fire", "color": "#ead4aa", "sfx": "boom",
+      "effect": { "type": "damage", "damage": 40, "unfreeze": true } },
+    { "id": "shatter", "name": "파쇄", "tier": 2, "residue": "ice", "element": "lightning", "color": "#ffffff", "sfx": "freeze",
+      "effect": { "type": "shards", "damage": 7, "count": 10, "speed": 230 } },
+    { "id": "discharge_spread", "name": "방전 확산", "tier": 2, "residue": "charged", "element": "wind", "color": "#c0cbdc", "sfx": "zap",
+      "effect": { "type": "chain", "damage": 9, "targets": 5, "range": 150 } },
+    { "id": "electrolysis", "name": "전해", "tier": 2, "residue": "charged", "element": "water", "color": "#c0cbdc", "sfx": "zap",
+      "effect": { "type": "chain", "damage": 9, "targets": 6, "range": 72 } },
+    { "id": "steam_veil", "name": "증기 장막", "tier": 2, "residue": "flames", "element": "water", "color": "#ffffff", "sfx": "sizzle",
+      "effect": { "type": "field", "kind": "steam", "damage": 0, "radius": 46, "duration": 4.0, "tick": 0.5 } },
+    { "id": "plasma", "name": "플라스마", "tier": 2, "residue": "flames", "element": "lightning", "color": "#c0cbdc", "sfx": "zap",
+      "effect": { "type": "field", "kind": "plasma", "damage": 6, "radius": 34, "duration": 2.5, "tick": 0.25 } },
+    { "id": "thunderstorm", "name": "뇌우", "tier": 2, "residue": "moist", "element": "lightning", "color": "#ead4aa", "sfx": "strike",
+      "effect": { "type": "strikes", "damage": 8, "count": 6, "radius": 13, "area": 70 } },
+    { "id": "frost_wind", "name": "서리 바람", "tier": 2, "residue": "moist", "element": "wind", "color": "#ffffff", "sfx": "freeze",
+      "effect": { "type": "aoeSlow", "damage": 4, "radius": 70, "factor": 0.4, "duration": 3.0 } },
+    { "id": "chain_explosion", "name": "연쇄 폭발", "tier": 2, "residue": "overheat", "element": "fire", "color": "#e4a672", "sfx": "boom",
+      "effect": { "type": "chainExplosion", "damage": 12, "radius": 28, "jumps": 4, "range": 90, "knockback": 120 } },
+    { "id": "fire_tornado", "name": "화염 회오리", "tier": 2, "residue": "vortex", "element": "fire", "color": "#feae34", "sfx": "vortex",
+      "effect": { "type": "field", "kind": "fireTornado", "damage": 5, "radius": 40, "duration": 3.0, "tick": 0.3, "pull": 45 } }
+  ],
+  "terrain": [
+    { "terrain": "puddle", "element": "lightning", "fx": "electric", "name": "전기장", "duration": 2.5 },
+    { "terrain": "puddle", "element": "wind", "fx": "ice", "name": "얼음 바닥", "duration": 5.0 },
+    { "terrain": "grass", "element": "fire", "fx": "burning", "name": "들불", "duration": 3.0 },
+    { "terrain": "channel", "element": "fire", "fx": "fireChannel", "name": "화염 통로", "duration": 3.0 },
+    { "terrain": "channel", "element": "lightning", "fx": "current", "name": "전류 통로", "duration": 1.5 }
+  ],
+  "terrainEffects": {
+    "electric": { "damage": 3, "attach": "lightning", "color": "#fee761" },
+    "current": { "damage": 3, "attach": "lightning", "color": "#fee761" },
+    "burning": { "damage": 3, "attach": "fire", "color": "#f77622" },
+    "fireChannel": { "damage": 3, "attach": "fire", "color": "#f77622" }
+  }
+}
