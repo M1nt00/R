@@ -482,13 +482,18 @@ export class UIScene extends Phaser.Scene {
         c.add(this.txt(22, 34, left.join('\n'), 8));
         // 반응식은 아래 첨자가 있는 화학식으로
         c.add(this.txt(250, 34, '[ 반응 ]', 8));
+        const P = (f: string, color: number): FormulaPiece => ({ f, color });
+        const plus = { f: '+', color: CHEM_COLOR.op, op: true };
+        const arrow = { f: '→', color: E32.silver, op: true };
         const eqs: [FormulaPiece[], string][] = [
-          [[{ f: 'H', color: CHEM_COLOR.H }, { f: '+', color: CHEM_COLOR.op, op: true }, { f: 'H', color: CHEM_COLOR.H }, { f: '→', color: E32.silver, op: true }, { f: 'H2', color: CHEM_COLOR.H }], '수소 기체'],
-          [[{ f: 'H2', color: CHEM_COLOR.H }, { f: '+', color: CHEM_COLOR.op, op: true }, { f: 'O', color: CHEM_COLOR.O }, { f: '→', color: E32.silver, op: true }, { f: 'H2O', color: CHEM_COLOR.water }], '물웅덩이'],
-          [[{ f: '2H2O', color: CHEM_COLOR.water }, { f: '+', color: CHEM_COLOR.op, op: true }, { f: '2Na', color: CHEM_COLOR.Na }, { f: '→', color: E32.silver, op: true }, { f: '2NaOH', color: CHEM_COLOR.naoh }, { f: '+', color: CHEM_COLOR.op, op: true }, { f: 'H2', color: CHEM_COLOR.H }], '폭발'],
+          [[P('H', CHEM_COLOR.H), plus, P('H', CHEM_COLOR.H), arrow, P('H2', CHEM_COLOR.H)], '수소 기체'],
+          [[P('O', CHEM_COLOR.O), plus, P('O', CHEM_COLOR.O), arrow, P('O2', CHEM_COLOR.O)], '산소 기체'],
+          [[P('H2', CHEM_COLOR.H), plus, P('O', CHEM_COLOR.O), arrow, P('H2O', CHEM_COLOR.water)], '물 (빠른 길)'],
+          [[P('2H2', CHEM_COLOR.H), plus, P('O2', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '물 2배 · 웅덩이가 더 큼'],
+          [[P('2H2O', CHEM_COLOR.water), plus, P('2Na', CHEM_COLOR.Na), arrow, P('2NaOH', CHEM_COLOR.naoh), plus, P('H2', CHEM_COLOR.H)], '폭발'],
         ];
         eqs.forEach(([pieces, note], i) => {
-          const y = 48 + i * 27;
+          const y = 46 + i * 26;
           const fl = formulaLine(this, pieces, 'small');
           fl.c.setPosition(250, y);
           c.add(fl.c);
@@ -501,7 +506,7 @@ export class UIScene extends Phaser.Scene {
           const rel = RELICS.filter((r) => run.relics.includes(r.id)).map((r) => r.name);
           right.push(rel.length ? '유물: ' + rel.join(', ') : '유물 없음');
         } else right.push('허수아비 연습 중');
-        c.add(this.txt(250, 140, right.join('\n'), 8).setWordWrapWidth(210));
+        c.add(this.txt(250, 182, right.join('\n'), 8).setWordWrapWidth(210));
         this.button(c, W / 2 - 34, H - 28, 68, 16, '계속하기', () => this.closeOverlay(), true, E32.silver);
       },
       (k) => {
