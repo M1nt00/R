@@ -339,10 +339,6 @@ export class RoomScene extends Phaser.Scene {
       const { x, y } = this.tileCenter(m.c, m.r);
       this.dummies.push(new Dummy(this, this.enemyGroup, x, y));
     }
-    for (const m of findMarkers(this.layout, 'G')) {
-      const { x, y } = this.tileCenter(m.c, m.r);
-      this.chem.addPlant(x, y + 6);
-    }
   }
 
   private setupShop(): void {

@@ -229,7 +229,7 @@ export class UIScene extends Phaser.Scene {
         c.add(this.txt(W / 2, 132, '시약을 던져서 실제 화학 반응을 일으켜요', 10, toCss(E32.silver)).setOrigin(0.5));
         const lines = [
           'WASD 이동 · 마우스 조준 · 좌클릭(꾹) 화염 방사 · 스페이스 구르기',
-          '1 수소(H) · 2 산소(O) · 3 나트륨(Na) · 4 이산화탄소 던지기',
+          '1 수소(H) · 2 산소(O) · 3 나트륨(Na) · 4 탄소(C) 던지기',
           'Q 포션 · E 상호작용',
         ];
         c.add(this.txt(W / 2, 160, lines.join('\n'), 8, toCss(E32.white)).setOrigin(0.5).setAlign('center'));
@@ -472,22 +472,21 @@ export class UIScene extends Phaser.Scene {
         c.add(this.txt(W / 2, 14, '일시정지', 12).setOrigin(0.5, 0));
         const left = [
           '[ 조작 ]',
-          'WASD 이동 · 마우스 조준',
+          'WASD 이동 · 마우스 조준 · 스페이스 구르기',
           '좌클릭(꾹) 화염 방사 (불씨, 직접 피해 없음)',
-          '1 수소 · 2 산소 · 3 나트륨 · 4 이산화탄소 던지기',
-          '스페이스 구르기 · Q 포션 · E 상호작용',
-          'H/ESC 일시정지 · M 소리',
+          '1 수소 · 2 산소 · 3 나트륨 · 4 탄소 던지기',
+          'Q 포션 · E 상호작용 · H/ESC 일시정지 · M 소리',
           '',
           '[ 규칙 ]',
           '· 시약은 마우스 쪽으로 날아가요 (최대 150px)',
-          '· 기체는 떨어진 자리에 구름으로 남아요',
-          '· 같은 구름 안에 던져야 합쳐져요',
+          '· 기체는 구름으로 남고, 같은 구름에 던져야 섞여요',
           '· 수소와 산소는 섞기만 하면 그대로예요',
           '· 수소에 불이 붙으면 터지고 물이 남아요',
           '  산소가 섞여 있으면 큰 폭발, 없으면 약한 폭발',
           '· 폭발은 옆 수소 구름에 옮겨붙어요',
           '· 나트륨은 물에 닿으면 폭발해요',
-          '· 빛이 드는 화분에 물 + 이산화탄소 → 광합성',
+          '· 탄소 + 산소 둘 → 이산화탄소',
+          '· 이산화탄소 구름이 물 위에 있으면 광합성',
           '  포도당 열매를 먹으면 HP 회복',
         ];
         c.add(this.txt(22, 34, left.join('\n'), 8));
@@ -498,10 +497,10 @@ export class UIScene extends Phaser.Scene {
         const arrow = { f: '→', color: E32.silver, op: true };
         const eqs: [FormulaPiece[], string][] = [
           [[P('H', CHEM_COLOR.H), plus, P('H', CHEM_COLOR.H), arrow, P('H2', CHEM_COLOR.H)], '저절로 (산소 원자 둘도 같은 식)'],
-          [[P('2H2', CHEM_COLOR.H), plus, P('O2(공기)', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '수소만 + 불 → 약한 폭발 + 물'],
-          [[P('2H2', CHEM_COLOR.H), plus, P('O2', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '산소 섞고 불 → 큰 폭발 + 물'],
+          [[P('C', CHEM_COLOR.C), plus, P('O', CHEM_COLOR.O), arrow, P('CO', CHEM_COLOR.CO)], '저절로, 산소 하나 더 → 이산화탄소'],
+          [[P('2H2', CHEM_COLOR.H), plus, P('O2', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '불 → 산소 없으면 약한, 섞으면 큰 폭발'],
           [[P('2H2O', CHEM_COLOR.water), plus, P('2Na', CHEM_COLOR.Na), arrow, P('2NaOH', CHEM_COLOR.naoh), plus, P('H2', CHEM_COLOR.H)], '폭발, 물은 1 줄어듦'],
-          [[P('6CO2', CHEM_COLOR.CO2), plus, P('6H2O', CHEM_COLOR.water), arrow, P('C6H12O6', CHEM_COLOR.glucose), plus, P('6O2', CHEM_COLOR.O)], '빛 드는 화분 → 포도당 열매 + 산소'],
+          [[P('6CO2', CHEM_COLOR.CO2), plus, P('6H2O', CHEM_COLOR.water), arrow, P('C6H12O6', CHEM_COLOR.glucose), plus, P('6O2', CHEM_COLOR.O)], '물 위 이산화탄소 → 열매 + 산소'],
           [[P('C6H12O6', CHEM_COLOR.glucose), plus, P('6O2', CHEM_COLOR.O), arrow, P('6CO2', CHEM_COLOR.CO2), plus, P('6H2O', CHEM_COLOR.water)], '열매 먹기 (세포 호흡) → HP +25'],
         ];
         eqs.forEach(([pieces, note], i) => {
