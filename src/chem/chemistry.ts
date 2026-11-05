@@ -127,6 +127,12 @@ const PHOTO_REVEAL = 0.6;
 const PHOTO_CD = 1.2;
 /** 구름(바닥 기준 자리)이 물웅덩이 위로 쳐주는 여유 */
 const PHOTO_MARGIN = 6;
+/** 광합성 때 위에서 내리쬐는 빛: 바닥까지 내려오는 시간, 사라지기 시작하는 때, 사라지는 시간 */
+const BEAM_IN = 0.18;
+const BEAM_HOLD = 1.0;
+const BEAM_OUT = 0.5;
+/** 해는 왼쪽 위: 위로 갈수록 왼쪽으로 기울어짐 (높이 1px당) */
+const BEAM_TILT = 0.18;
 /** 열매를 먹으면 회복하는 HP, 열매가 남아 있는 시간 */
 const FRUIT_HEAL = 25;
 const FRUIT_LIFE = 30;
@@ -226,6 +232,14 @@ function spotsTouch(a: WaterSpot, b: WaterSpot): boolean {
 /** 라벨이 둥둥 뜨는 높이 (정수 픽셀, -2 ~ 2) */
 const bob = (time: number, ph: number) => Math.round(Math.sin(time * 2.4 + ph) * 1.5);
 
+/** 광합성 때 위에서 내리쬐는 빛줄기 (x, y = 빛이 닿는 바닥) */
+interface SunBeam {
+  x: number;
+  y: number;
+  t: number;
+  ph: number;
+}
+
 /** 포도당 열매 */
 interface Fruit {
   x: number;
@@ -306,9 +320,12 @@ export class ChemSystem {
   private lumps: Lump[] = [];
   private waters: Water[] = [];
   private fruits: Fruit[] = [];
+  private beams: SunBeam[] = [];
   private readonly g: Phaser.GameObjects.Graphics;
   /** 물웅덩이는 바닥 높이 (캐릭터 아래) */
   private readonly wg: Phaser.GameObjects.Graphics;
+  /** 광합성 빛줄기 (더하기 블렌드, 조명 위) */
+  private readonly beamG: Phaser.GameObjects.Graphics;
   private readonly keys: Record<Reagent, Phaser.Input.Keyboard.Key>;
 
   constructor(private readonly s: RoomScene) {
@@ -316,6 +333,7 @@ export class ChemSystem {
     // 조명 위에 그려서 어두운 방에서도 기체가 보이게
     this.g = s.add.graphics().setDepth(DEPTH.vfx - 10);
     this.wg = s.add.graphics().setDepth(DEPTH.terrain + 0.5);
+    this.beamG = s.add.graphics().setDepth(DEPTH.vfx - 20).setBlendMode(Phaser.BlendModes.ADD);
     const kb = s.input.keyboard!;
     this.keys = { H: kb.addKey(KEY_CODE.H), O: kb.addKey(KEY_CODE.O), Na: kb.addKey(KEY_CODE.Na), C: kb.addKey(KEY_CODE.C) };
     this.emit({ type: 'clear' });
@@ -354,6 +372,8 @@ export class ChemSystem {
     this.updateLumps(dt);
     this.updateWaters(dt);
     this.updatePhotosynthesis(dt);
+    for (const b of this.beams) b.t += dt;
+    this.beams = this.beams.filter((b) => b.t < BEAM_HOLD + BEAM_OUT);
     this.updateFruits(dt);
   }
 
@@ -647,6 +667,8 @@ export class ChemSystem {
         revealAt: PHOTO_REVEAL,
       });
       playSfx('photo');
+      // 빛과 식물은 생략했지만 연출로 위에서 빛이 내리쬠
+      this.beams.push({ x: c.x, y: c.y, t: 0, ph: Math.random() * 10 });
       s.scheduler.after(PHOTO_REVEAL, () => {
         const side = Math.random() < 0.5 ? -1 : 1;
         this.addFruit(c.x + side * (16 + Math.random() * 6), c.y + 2 + Math.random() * 4);
@@ -658,6 +680,14 @@ export class ChemSystem {
         s.lighting.flash(c.x, c.y - 9, 120, E32.lime, 0.5);
       });
     }
+  }
+
+  /** 빛줄기 세기: 들어올 때 차오르고, 열매가 열리는 순간 한 번 더 환해졌다가, 서서히 사라짐 */
+  private beamPower(b: SunBeam): number {
+    const fadeIn = Math.min(1, b.t / BEAM_IN);
+    const fadeOut = b.t > BEAM_HOLD ? Math.max(0, 1 - (b.t - BEAM_HOLD) / BEAM_OUT) : 1;
+    const pulse = b.t >= PHOTO_REVEAL ? 0.7 * Math.exp(-(b.t - PHOTO_REVEAL) * 7) : 0;
+    return fadeIn * fadeOut + pulse * fadeOut;
   }
 
   private addFruit(x: number, y: number): void {
@@ -1015,6 +1045,7 @@ export class ChemSystem {
 
   draw(time: number): void {
     this.drawWaters(time);
+    this.drawBeams(time);
     const g = this.g;
     g.clear();
     for (const c of this.clouds) {
@@ -1049,6 +1080,59 @@ export class ChemSystem {
     }
   }
 
+  /** 위(화면 밖)에서 바닥까지 비스듬히 내리쬐는 빛. 1px 단위 가로줄로 쌓아서 가장자리가 픽셀로 또렷하게 */
+  private drawBeams(time: number): void {
+    const g = this.beamG;
+    g.clear();
+    const top = Math.floor(this.s.cameras.main.worldView.y) - 4;
+    for (const b of this.beams) {
+      const k = this.beamPower(b);
+      if (k <= 0.01) continue;
+      const h = b.y - top;
+      if (h <= 0) continue;
+      // 위에서 바닥까지 빠르게 내려옴
+      const reach = Math.min(1, b.t / BEAM_IN);
+      const bottom = top + Math.round(h * reach);
+      const shimmer = 1 + 0.12 * Math.sin(time * 9 + b.ph);
+      const cxAt = (y: number) => b.x - (b.y - y) * BEAM_TILT;
+      const widthAt = (y: number) => 14 + 30 * ((y - top) / h);
+      for (let y = top; y < bottom; y += 2) {
+        const cx = cxAt(y);
+        const w = widthAt(y);
+        // 번진 가장자리 → 따뜻한 빛 → 노란 심
+        g.fillStyle(E32.sand, 0.04 * k * shimmer);
+        g.fillRect(Math.round(cx - w * 0.7), y, Math.round(w * 1.4), 2);
+        g.fillStyle(E32.amber, 0.08 * k * shimmer);
+        g.fillRect(Math.round(cx - w / 2), y, Math.round(w), 2);
+        g.fillStyle(E32.yellow, 0.1 * k * shimmer);
+        g.fillRect(Math.round(cx - w / 4), y, Math.round(w / 2), 2);
+        // 빛 속의 가는 줄기 두 개 (일렁임)
+        for (let i = 0; i < 2; i++) {
+          const a = 0.05 * k * (0.5 + 0.5 * Math.sin(time * 3 + i * 2.3 + b.ph));
+          g.fillStyle(E32.white, a);
+          g.fillRect(Math.round(cx + (i === 0 ? -0.3 : 0.18) * w), y, 2, 2);
+        }
+      }
+      // 바닥에 닿은 빛 웅덩이
+      if (reach >= 1) {
+        g.fillStyle(E32.amber, 0.14 * k);
+        g.fillEllipse(Math.round(b.x), Math.round(b.y), 56, 18);
+        g.fillStyle(E32.yellow, 0.16 * k);
+        g.fillEllipse(Math.round(b.x), Math.round(b.y), 34, 11);
+      }
+      // 빛 속을 천천히 떠내려오는 먼지
+      for (let i = 0; i < 7; i++) {
+        const p = (time * 0.3 + i / 7 + b.ph) % 1;
+        const y = top + p * h;
+        if (y > bottom) continue;
+        const w = widthAt(y);
+        const x = cxAt(y) + Math.sin(time * 1.7 + i * 2.1 + b.ph) * w * 0.35;
+        g.fillStyle(E32.white, 0.6 * Math.min(1, k) * Math.sin(Math.PI * p));
+        g.fillRect(Math.round(x), Math.round(y), 1, 1);
+      }
+    }
+  }
+
   emitLights(): void {
     const L = this.s.lighting;
     for (const c of this.clouds) {
@@ -1059,5 +1143,12 @@ export class ChemSystem {
     for (const l of this.lumps) if (l.fizz >= 0) L.add(l.x, l.y - 2, 70, E32.amber, 0.9);
     for (const w of this.waters) for (const sp of liveSpots(w)) L.add(sp.x, sp.y, sp.r * 2.4, E32.blue, 0.5 * sp.grow);
     for (const f of this.fruits) L.add(f.x, f.y - 4, 26, E32.amber, 0.4);
+    // 빛줄기가 바닥과 그 위 구름을 밝힘
+    for (const b of this.beams) {
+      const k = Math.min(1, this.beamPower(b)) * Math.min(1, b.t / BEAM_IN);
+      if (k <= 0.01) continue;
+      L.add(b.x, b.y, 80, E32.yellow, 0.9 * k);
+      L.add(b.x - 30 * BEAM_TILT, b.y - 30, 50, E32.sand, 0.6 * k);
+    }
   }
 }
