@@ -141,7 +141,6 @@ export class ReactionEngine {
       const m = this.mods;
       if (m.heal > 0) s.player.heal(m.heal);
       if (def.id === 'vaporize' && m.flags.has('vaporize_roll')) s.player.refundRoll();
-      if (def.id === 'thunderwind' && m.flags.has('thunderwind_cd')) s.player.freeLightningT = 3;
     }
     target.onReaction(def);
     this.runEffect(def, target, color, opts);

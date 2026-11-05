@@ -207,10 +207,8 @@ export class RoomScene extends Phaser.Scene {
 
     this.state = 'play';
     this.setupMode();
-    this.input.keyboard!.on('keydown-T', this.onToggleTrial, this);
     if (DEV) this.input.keyboard!.on('keydown', this.onDevKey, this);
     this.events.once('shutdown', () => {
-      this.input.keyboard!.off('keydown-T', this.onToggleTrial, this);
       this.input.keyboard!.off('keydown', this.onDevKey, this);
     });
     this.game.events.emit('roomEnter', this);
@@ -249,8 +247,8 @@ export class RoomScene extends Phaser.Scene {
     const base = playerBase();
     const run = this.run;
     const st: PlayerStats = run
-      ? { maxHp: run.maxHp, hp: run.hp, atk: base.atk, speed: base.speed, rollMax: base.rollMax, attach: base.attach, potions: run.potions }
-      : { maxHp: base.maxHp, hp: base.maxHp, atk: base.atk, speed: base.speed, rollMax: base.rollMax, attach: base.attach, potions: base.potions };
+      ? { maxHp: run.maxHp, hp: run.hp, atk: base.atk, speed: base.speed, rollMax: base.rollMax, potions: run.potions }
+      : { maxHp: base.maxHp, hp: base.maxHp, atk: base.atk, speed: base.speed, rollMax: base.rollMax, potions: base.potions };
     const el = (this.registry.get('element') as Element | undefined) ?? 'fire';
     const pos = this.mode === 'hub' ? { x: WORLD_W / 2, y: 15 * TILE + 8 } : { x: ENTRANCE_COL * TILE + TILE, y: (ROWS - 2) * TILE + 6 };
     this.player = new Player(this, this.playerGroup, pos.x, pos.y, st, el);
@@ -620,8 +618,6 @@ export class RoomScene extends Phaser.Scene {
           environmental: true,
           color: colorOf(tfx.color),
         });
-      } else if (info.kind === 'puddle' && info.fx === 'none') {
-        this.engine.apply(a, 'water', { noStack: true, attachDuration: 1.5 });
       }
     }
   }
@@ -770,7 +766,6 @@ export class RoomScene extends Phaser.Scene {
     run.boons[id] = (run.boons[id] ?? 0) + 1;
     this.engine.mods = computeMods(run);
     const b = BOONS.find((x) => x.id === id);
-    this.player.empowered = Math.max(this.player.empowered, 0);
     this.vfx.ring(this.player.x, this.player.y - 6, 4, 34, 0xfee761, 0.5, 2);
     this.vfx.spark(this.player.x, this.player.y - 10, 0xfee761, 20, 60, 90);
     if (b) this.vfx.floatText(this.player.x, this.player.y - 30, b.name, 0xfee761, 6, 1, 16, true);
@@ -890,13 +885,6 @@ export class RoomScene extends Phaser.Scene {
     endRun(victory);
     this.cameras.main.fadeOut(400, 0, 0, 0);
     this.cameras.main.once('camerafadeoutcomplete', () => this.scene.restart({ hub: true }));
-  }
-
-  private onToggleTrial(): void {
-    if (this.mode !== 'hub') return;
-    this.trial = !this.trial;
-    this.engine.secondaryUnlocked = this.trial ? new Set(DATA.secondary.map((s) => s.id)) : new Set(meta.secondary);
-    this.banner(this.trial ? '2차 반응 체험 모드 (성소 안에서만)' : '체험 모드 끔', 0xead4aa);
   }
 
   private onDevKey(ev: KeyboardEvent): void {

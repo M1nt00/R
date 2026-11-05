@@ -11,12 +11,14 @@ import { formulaLine, joinTerms } from './formula';
  *   H₂ + O       → H₂O           (구름이 물로 응결 → 물웅덩이)
  *   2H₂O + 2Na   → 2NaOH + H₂    (물에 나트륨 → 폭발, 수소 구름이 남음)
  * 기체는 떨어진 자리에 구름으로 남고, 같은 구름 안에 던져야 합쳐진다.
+ * 화면 위 화학식은 무언가와 합쳐질 때만 뜨고 잠시 뒤 사라진다 (땅의 구름·물·나트륨 라벨은 남음).
  */
 
 export type Reagent = 'H' | 'O' | 'Na';
 export const REAGENTS: readonly Reagent[] = ['H', 'O', 'Na'];
-export const REAGENT_KEY: Record<Reagent, string> = { H: 'Z', O: 'X', Na: 'C' };
-export const REAGENT_NAME: Record<Reagent, string> = { H: '수소', O: '산소', Na: '나트륨' };
+/** 화면에 보이는 키 이름 */
+export const REAGENT_KEY: Record<Reagent, string> = { H: '1', O: '2', Na: '3' };
+const KEY_CODE: Record<Reagent, string> = { H: 'ONE', O: 'TWO', Na: 'THREE' };
 
 /** 분자 모형 관례색(CPK): 수소 흰색, 산소 빨강, 나트륨 보라 */
 export const CHEM_COLOR = {
@@ -35,20 +37,30 @@ export interface ChemTerm {
 
 /** UI(위 가운데 화학식)로 보내는 이벤트 */
 export type ChemEvent =
-  | { type: 'state'; terms: ChemTerm[] }
-  | { type: 'equation'; lhs: ChemTerm[]; rhs: ChemTerm[]; revealAt: number; fizz?: boolean; result: ChemTerm[] | null }
+  /** 반응: 왼쪽 → 오른쪽. revealAt초에 결과가 나옴 */
+  | { type: 'equation'; lhs: ChemTerm[]; rhs: ChemTerm[]; revealAt: number; fizz?: boolean }
+  /** 합쳐졌지만 반응은 안 일어남 (예: H + O) */
+  | { type: 'mix'; terms: ChemTerm[] }
   | { type: 'clear' };
+
+/** 구름 속 물질 */
+type Species = 'H' | 'H2' | 'O';
+const SPECIES_COLOR: Record<Species, number> = { H: CHEM_COLOR.H, H2: CHEM_COLOR.H, O: CHEM_COLOR.O };
+type Step = 'h2' | 'water';
 
 export const THROW_CD = 0.25;
 const RANGE = 150;
 const CLOUD_R = 16;
 const CLOUD_LIFE = 14;
+const CLOUD_MAX = 6;
 const LUMP_LIFE = 15;
 const WATER_R = 20;
 const WATER_LIFE = 14;
 /** 반응이 시작되고 결과(→ 오른쪽)가 나오기까지 */
-const WATER_REVEAL = 0.45;
+const REVEAL: Record<Step, number> = { h2: 0.35, water: 0.45 };
 const NA_REVEAL = 0.7;
+/** 연달아 일어나는 반응 사이: 앞 반응 결과를 보여주는 시간 */
+const CHAIN_GAP = 0.75;
 const NA_BLAST_R = 42;
 const NA_DAMAGE = 35;
 
@@ -76,12 +88,16 @@ interface Puff {
 interface Cloud {
   x: number;
   y: number;
-  H: number;
-  O: number;
+  /** 실제 들어 있는 물질 (반응은 던진 순간 계산) */
+  species: Species[];
+  /** 화면에 보여주는 물질 (반응 연출에 맞춰 늦게 바뀜) */
+  shown: Species[];
   t: number;
   age: number;
   /** 물로 응결 중 (남은 시간) */
   condense: number;
+  /** 예약된 반응 연출이 끝나는 시각 */
+  busyUntil: number;
   puffs: Puff[];
   label: Phaser.GameObjects.Container | null;
   labelW: number;
@@ -95,13 +111,13 @@ interface Lump {
   fizz: number;
   img: Phaser.GameObjects.Image;
   label: Phaser.GameObjects.Container;
-  labelW: number;
 }
 
 interface Water {
   x: number;
   y: number;
   t: number;
+  label: Phaser.GameObjects.Container;
 }
 
 const FLASK = ['..ccc..', '..oGo..', '..oGo..', '.oLLLo.', 'oLWLLLo', 'oLLLLlo', 'oLLLllo', '.olllo.', '..ooo..'];
@@ -127,14 +143,29 @@ function makeTextures(s: Phaser.Scene): void {
   }
 }
 
+/** ['H2','H2','O'] → 2H₂ + O (처음 나온 순서대로, 같은 건 계수로 묶음) */
+function speciesTerms(list: readonly Species[]): ChemTerm[] {
+  const order: Species[] = [];
+  const n = new Map<Species, number>();
+  for (const sp of list) {
+    if (!n.has(sp)) order.push(sp);
+    n.set(sp, (n.get(sp) ?? 0) + 1);
+  }
+  return order.map((sp) => ({ f: `${n.get(sp)! > 1 ? n.get(sp) : ''}${sp}`, color: SPECIES_COLOR[sp] }));
+}
+
+function take(list: Species[], sp: Species, k: number): void {
+  for (let i = 0; i < k; i++) list.splice(list.indexOf(sp), 1);
+}
+
+const count = (list: readonly Species[], sp: Species) => list.filter((x) => x === sp).length;
+
 export class ChemSystem {
   throwCd = 0;
   private flasks: Flask[] = [];
   private clouds: Cloud[] = [];
   private lumps: Lump[] = [];
   private waters: Water[] = [];
-  /** 위 화면에 화학식이 떠 있는 대상 */
-  private active: object | null = null;
   private readonly g: Phaser.GameObjects.Graphics;
   private readonly keys: Record<Reagent, Phaser.Input.Keyboard.Key>;
 
@@ -143,7 +174,7 @@ export class ChemSystem {
     // 조명 위에 그려서 어두운 방에서도 기체가 보이게
     this.g = s.add.graphics().setDepth(DEPTH.vfx - 10);
     const kb = s.input.keyboard!;
-    this.keys = { H: kb.addKey(REAGENT_KEY.H), O: kb.addKey(REAGENT_KEY.O), Na: kb.addKey(REAGENT_KEY.Na) };
+    this.keys = { H: kb.addKey(KEY_CODE.H), O: kb.addKey(KEY_CODE.O), Na: kb.addKey(KEY_CODE.Na) };
     this.emit({ type: 'clear' });
   }
 
@@ -151,15 +182,11 @@ export class ChemSystem {
     this.s.game.events.emit('chem', ev);
   }
 
-  private setActive(obj: object, terms: ChemTerm[]): void {
-    this.active = obj;
-    this.emit({ type: 'state', terms });
-  }
-
-  private dropActive(obj: object): void {
-    if (this.active !== obj) return;
-    this.active = null;
-    this.emit({ type: 'clear' });
+  /** 땅 위 작은 화학식 라벨 */
+  private makeLabel(terms: ChemTerm[]): { c: Phaser.GameObjects.Container; w: number } {
+    const line = formulaLine(this.s, joinTerms(terms, CHEM_COLOR.op), 'small');
+    line.c.setDepth(DEPTH.text - 1);
+    return { c: line.c, w: line.w };
   }
 
   // ───────────────────────── 던지기 ─────────────────────────
@@ -178,9 +205,7 @@ export class ChemSystem {
     this.updateFlasks(dt);
     this.updateClouds(dt);
     this.updateLumps(dt);
-    for (const w of this.waters) w.t -= dt;
-    for (const w of this.waters.filter((w) => w.t <= 0)) this.dropActive(w);
-    this.waters = this.waters.filter((w) => w.t > 0);
+    this.updateWaters(dt);
   }
 
   private throwReagent(r: Reagent): void {
@@ -242,37 +267,76 @@ export class ChemSystem {
     if (r === 'Na') {
       const lump = this.addLump(x, y);
       if (this.isWater(x, y)) this.startSodium(lump);
-      else this.setActive(lump, [{ f: 'Na', color: CHEM_COLOR.Na }]);
       return;
-    }
-    let c = this.cloudAt(x, y);
-    if (c) {
-      c[r] = Math.min(2, c[r] + 1);
-      c.t = CLOUD_LIFE;
-    } else {
-      c = this.addCloud(x, y, r === 'H' ? 1 : 0, r === 'O' ? 1 : 0);
     }
     this.s.vfx.burst(x, y - 8, r === 'H' ? E32.silver : E32.red, 8);
     playSfx('gas');
-    if (c.H >= 2 && c.O >= 1) this.formWater(c);
-    else {
-      this.refreshLabel(c);
-      this.setActive(c, this.cloudTerms(c));
-    }
+    const c = this.cloudAt(x, y);
+    // 빈 곳에 떨어지면 혼자 구름이 될 뿐, 화면 위에는 안 뜸
+    if (!c) this.addCloud(x, y, [r]);
+    else this.addToCloud(c, r);
   }
 
   private isWater(x: number, y: number): boolean {
     return this.s.terrain.infoAt(x, y).kind === 'puddle';
   }
 
-  /** H₂ + O → H₂O : 구름이 물방울로 응결해서 물웅덩이가 된다 */
-  private formWater(c: Cloud): void {
+  /** 구름에 물질이 더해짐 → 일어날 수 있는 반응을 차례로 예약. 반응이 없으면 합쳐진 모습만 잠깐 보여줌 */
+  private addToCloud(c: Cloud, sp: Species): void {
+    c.t = CLOUD_LIFE;
+    if (c.species.length >= CLOUD_MAX) return;
+    const before = speciesTerms(c.species);
+    c.species.push(sp);
+    const steps: { step: Step; after: Species[] }[] = [];
+    for (;;) {
+      if (count(c.species, 'H') >= 2) {
+        take(c.species, 'H', 2);
+        c.species.push('H2');
+        steps.push({ step: 'h2', after: [...c.species] });
+      } else if (c.species.includes('H2') && c.species.includes('O')) {
+        take(c.species, 'H2', 1);
+        take(c.species, 'O', 1);
+        steps.push({ step: 'water', after: [...c.species] });
+      } else break;
+    }
+    if (!steps.length) {
+      this.emit({ type: 'mix', terms: [...before, { f: sp, color: SPECIES_COLOR[sp] }] });
+      c.shown = [...c.species];
+      this.refreshLabel(c);
+      return;
+    }
+    // 앞 반응 연출이 남아 있으면 그 뒤에 이어서
+    const now = this.s.gameTime;
+    let at = Math.max(0, c.busyUntil - now);
+    for (const st of steps) {
+      this.s.scheduler.after(at, () => this.runStep(c, st.step, st.after));
+      at += REVEAL[st.step] + CHAIN_GAP;
+    }
+    c.busyUntil = now + at;
+  }
+
+  private runStep(c: Cloud, step: Step, after: Species[]): void {
     const s = this.s;
-    c.H -= 2;
-    c.O -= 1;
-    c.condense = WATER_REVEAL;
-    const water: Water = { x: c.x, y: c.y, t: WATER_LIFE };
-    this.active = water;
+    const reveal = REVEAL[step];
+    if (step === 'h2') {
+      this.emit({
+        type: 'equation',
+        lhs: [
+          { f: 'H', color: CHEM_COLOR.H },
+          { f: 'H', color: CHEM_COLOR.H },
+        ],
+        rhs: [{ f: 'H2', color: CHEM_COLOR.H }],
+        revealAt: reveal,
+      });
+      s.scheduler.after(reveal, () => {
+        c.shown = after;
+        this.refreshLabel(c);
+        s.vfx.ring(c.x, c.y - 9, 4, 18, E32.silver, 0.25, 1);
+        s.vfx.glow(c.x, c.y - 9, 20, E32.silver, 0.25);
+      });
+      return;
+    }
+    // H₂ + O → H₂O : 구름이 물방울로 응결해서 물웅덩이가 된다
     this.emit({
       type: 'equation',
       lhs: [
@@ -280,16 +344,18 @@ export class ChemSystem {
         { f: 'O', color: CHEM_COLOR.O },
       ],
       rhs: [{ f: 'H2O', color: CHEM_COLOR.water }],
-      revealAt: WATER_REVEAL,
-      result: [{ f: 'H2O', color: CHEM_COLOR.water }],
+      revealAt: reveal,
     });
-    s.scheduler.after(WATER_REVEAL, () => {
-      s.terrain.addPuddle(water.x, water.y, WATER_R, WATER_LIFE, 6, 'chem');
-      this.waters.push(water);
-      s.vfx.ring(water.x, water.y, 4, WATER_R + 6, E32.blue, 0.3, 2);
-      s.vfx.spark(water.x, water.y - 6, E32.cyan, 14, 60, 50);
-      s.vfx.glow(water.x, water.y - 4, 28, E32.blue, 0.3);
-      s.lighting.flash(water.x, water.y, 90, E32.blue, 0.35);
+    c.condense = reveal;
+    s.scheduler.after(reveal, () => {
+      c.shown = after;
+      this.refreshLabel(c);
+      s.terrain.addPuddle(c.x, c.y, WATER_R, WATER_LIFE, 6, 'chem');
+      this.addWater(c.x, c.y);
+      s.vfx.ring(c.x, c.y, 4, WATER_R + 6, E32.blue, 0.3, 2);
+      s.vfx.spark(c.x, c.y - 6, E32.cyan, 14, 60, 50);
+      s.vfx.glow(c.x, c.y - 4, 28, E32.blue, 0.3);
+      s.lighting.flash(c.x, c.y, 90, E32.blue, 0.35);
       playSfx('splash');
     });
   }
@@ -297,7 +363,6 @@ export class ChemSystem {
   /** 물 위의 나트륨: 지글거리며 튀어 다니다가 폭발 */
   private startSodium(lump: Lump): void {
     lump.fizz = NA_REVEAL;
-    this.active = lump;
     this.emit({
       type: 'equation',
       lhs: [
@@ -310,7 +375,6 @@ export class ChemSystem {
       ],
       revealAt: NA_REVEAL,
       fizz: true,
-      result: [{ f: 'H2', color: CHEM_COLOR.H }],
     });
     playSfx('fizz');
   }
@@ -318,7 +382,7 @@ export class ChemSystem {
   private explodeSodium(lump: Lump): void {
     const s = this.s;
     const { x, y } = lump;
-    this.removeLump(lump, false);
+    this.removeLump(lump);
     s.vfx.explosion(x, y, NA_BLAST_R, E32.amber);
     s.vfx.ring(x, y, 8, NA_BLAST_R + 12, E32.yellow, 0.35, 2);
     s.vfx.spark(x, y, E32.cyan, 18, 150, 110);
@@ -341,23 +405,24 @@ export class ChemSystem {
     }
     // 물(2H₂O)은 반응으로 사라지고, 수소 기체(H₂)가 남는다
     s.terrain.drainPuddle(x, y, WATER_R + 4);
-    this.waters = this.waters.filter((w) => Phaser.Math.Distance.Between(w.x, w.y, x, y) > WATER_R + 8);
-    const c = this.addCloud(x, y - 2, 2, 0);
-    this.refreshLabel(c);
-    this.active = c;
+    for (const w of this.waters) {
+      if (Phaser.Math.Distance.Between(w.x, w.y, x, y) <= WATER_R + 8) w.t = Math.min(w.t, 0.25);
+    }
+    this.addCloud(x, y - 2, ['H2']);
   }
 
   // ───────────────────────── 구름 (기체) ─────────────────────────
 
-  private addCloud(x: number, y: number, H: number, O: number): Cloud {
+  private addCloud(x: number, y: number, species: Species[]): Cloud {
     const puffs: Puff[] = [];
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 + Math.random() * 0.5;
       const d = 3 + Math.random() * 5;
       puffs.push({ ox: Math.cos(a) * d * 1.3, oy: Math.sin(a) * d * 0.7, r: 5 + Math.random() * 3, ph: Math.random() * 10 });
     }
-    const c: Cloud = { x, y, H, O, t: CLOUD_LIFE, age: 0, condense: 0, puffs, label: null, labelW: 0 };
+    const c: Cloud = { x, y, species: [...species], shown: [...species], t: CLOUD_LIFE, age: 0, condense: 0, busyUntil: 0, puffs, label: null, labelW: 0 };
     this.clouds.push(c);
+    this.refreshLabel(c);
     return c;
   }
 
@@ -365,7 +430,7 @@ export class ChemSystem {
     let best: Cloud | null = null;
     let bd = CLOUD_R + 8;
     for (const c of this.clouds) {
-      if (c.condense > 0 || c.H + c.O === 0) continue;
+      if (c.species.length === 0) continue;
       const d = Phaser.Math.Distance.Between(c.x, c.y, x, y);
       if (d <= bd) {
         bd = d;
@@ -375,68 +440,70 @@ export class ChemSystem {
     return best;
   }
 
-  private cloudTerms(c: Cloud): ChemTerm[] {
-    const t: ChemTerm[] = [];
-    if (c.H > 0) t.push({ f: c.H >= 2 ? 'H2' : 'H', color: CHEM_COLOR.H });
-    if (c.O > 0) t.push({ f: c.O >= 2 ? 'O2' : 'O', color: CHEM_COLOR.O });
-    return t;
-  }
-
   private refreshLabel(c: Cloud): void {
     c.label?.destroy();
     c.label = null;
-    const terms = this.cloudTerms(c);
-    if (!terms.length) return;
-    const line = formulaLine(this.s, joinTerms(terms, CHEM_COLOR.op), 'small');
-    line.c.setDepth(DEPTH.text - 1);
-    c.label = line.c;
-    c.labelW = line.w;
+    if (!c.shown.length) return;
+    const l = this.makeLabel(speciesTerms(c.shown));
+    c.label = l.c;
+    c.labelW = l.w;
   }
 
   private updateClouds(dt: number): void {
+    const now = this.s.gameTime;
     for (const c of this.clouds) {
       c.age += dt;
       if (c.condense > 0) {
-        c.condense -= dt;
+        c.condense = Math.max(0, c.condense - dt);
         if (Math.random() < dt * 30) this.s.vfx.spark(c.x + (Math.random() - 0.5) * 16, c.y - 8, E32.cyan, 1, 10, 5);
-        if (c.condense <= 0) {
-          c.condense = 0;
-          this.refreshLabel(c);
-        }
         continue;
       }
+      if (!c.shown.length) continue;
       c.t -= dt;
       if (Math.random() < dt * 3) {
-        const col = c.O > 0 && (c.H === 0 || Math.random() < 0.5) ? E32.red : E32.silver;
+        const col = c.shown.includes('O') && (!this.hasH(c.shown) || Math.random() < 0.5) ? E32.red : E32.silver;
         this.s.vfx.spark(c.x + (Math.random() - 0.5) * 18, c.y - 8 + (Math.random() - 0.5) * 8, col, 1, 6, 14);
       }
     }
-    for (const c of this.clouds) {
-      if (c.condense > 0) continue;
-      if (c.t <= 0 || c.H + c.O === 0) {
-        c.label?.destroy();
-        this.dropActive(c);
-      }
-    }
-    this.clouds = this.clouds.filter((c) => c.condense > 0 || (c.t > 0 && c.H + c.O > 0));
+    const gone = (c: Cloud) => c.t <= 0 || (c.species.length === 0 && c.condense <= 0 && now >= c.busyUntil);
+    for (const c of this.clouds) if (gone(c)) c.label?.destroy();
+    this.clouds = this.clouds.filter((c) => !gone(c));
   }
 
-  // ───────────────────────── 나트륨 덩어리 ─────────────────────────
+  private hasH(list: readonly Species[]): boolean {
+    return list.includes('H') || list.includes('H2');
+  }
+
+  // ───────────────────────── 물·나트륨 ─────────────────────────
+
+  private addWater(x: number, y: number): void {
+    const l = this.makeLabel([{ f: 'H2O', color: CHEM_COLOR.water }]);
+    l.c.setPosition(Math.round(x - l.w / 2), Math.round(y - 16));
+    this.waters.push({ x, y, t: WATER_LIFE, label: l.c });
+  }
+
+  private updateWaters(dt: number): void {
+    for (const w of this.waters) {
+      w.t -= dt;
+      w.label.setAlpha(Math.max(0, Math.min(1, w.t / 1.5)));
+      if (w.t <= 0) w.label.destroy();
+    }
+    this.waters = this.waters.filter((w) => w.t > 0);
+  }
 
   private addLump(x: number, y: number): Lump {
     const img = this.s.add.image(Math.round(x), Math.round(y), 'na_lump').setOrigin(0.5, 1).setDepth(DEPTH.actor + y);
-    const line = formulaLine(this.s, [{ f: 'Na', color: CHEM_COLOR.Na }], 'small');
-    line.c.setDepth(DEPTH.text - 1).setPosition(Math.round(x - line.w / 2), Math.round(y - 18));
-    const lump: Lump = { x, y, t: LUMP_LIFE, fizz: -1, img, label: line.c, labelW: line.w };
+    const l = this.makeLabel([{ f: 'Na', color: CHEM_COLOR.Na }]);
+    l.c.setPosition(Math.round(x - l.w / 2), Math.round(y - 18));
+    const lump: Lump = { x, y, t: LUMP_LIFE, fizz: -1, img, label: l.c };
     this.lumps.push(lump);
     return lump;
   }
 
-  private removeLump(l: Lump, clearUi: boolean): void {
+  private removeLump(l: Lump): void {
     l.img.destroy();
     l.label.destroy();
     this.lumps = this.lumps.filter((o) => o !== l);
-    if (clearUi) this.dropActive(l);
   }
 
   private updateLumps(dt: number): void {
@@ -446,14 +513,16 @@ export class ChemSystem {
         // 물 위에서 지글거리며 이리저리 튐
         const jx = Math.round((Math.random() - 0.5) * 3);
         l.img.setPosition(Math.round(l.x) + jx, Math.round(l.y) - (Math.random() < 0.3 ? 1 : 0));
+        l.label.setAlpha(0);
         if (Math.random() < dt * 40) this.s.vfx.spark(l.x, l.y - 2, Math.random() < 0.5 ? E32.yellow : E32.amber, 1, 40, 50);
         if (Math.random() < dt * 25) this.s.vfx.spark(l.x, l.y, E32.white, 1, 25, 20);
         if (l.fizz <= 0) this.explodeSodium(l);
         continue;
       }
       l.t -= dt;
+      l.label.setAlpha(Math.min(1, l.t / 1.5));
       if (this.isWater(l.x, l.y)) this.startSodium(l);
-      else if (l.t <= 0) this.removeLump(l, true);
+      else if (l.t <= 0) this.removeLump(l);
     }
   }
 
@@ -463,12 +532,15 @@ export class ChemSystem {
     const g = this.g;
     g.clear();
     for (const c of this.clouds) {
+      if (!c.shown.length && c.condense <= 0) continue;
       const fade = Math.min(1, c.t / 1.5) * Math.min(1, c.age / 0.25);
-      const shrink = c.condense > 0 ? c.condense / WATER_REVEAL : 1;
-      const scale = 0.8 + 0.12 * (c.H + c.O + (c.condense > 0 ? 3 : 0));
-      const both = c.H > 0 && c.O > 0;
+      const shrink = c.condense > 0 ? c.condense / REVEAL.water : 1;
+      const n = c.condense > 0 ? Math.max(c.shown.length, 2) : c.shown.length;
+      const scale = 0.85 + 0.1 * Math.min(n, 4);
+      const hasO = c.shown.includes('O');
+      const both = hasO && this.hasH(c.shown);
       c.puffs.forEach((pf, i) => {
-        const col = c.condense > 0 ? E32.cyan : both ? (i % 2 ? E32.red : E32.silver) : c.O > 0 ? E32.red : E32.silver;
+        const col = c.condense > 0 ? E32.cyan : both ? (i % 2 ? E32.red : E32.silver) : hasO ? E32.red : E32.silver;
         const px = Math.round(c.x + (pf.ox + Math.sin(time * 1.3 + pf.ph) * 2) * shrink);
         const py = Math.round(c.y - 9 + (pf.oy + Math.cos(time * 1.1 + pf.ph) * 1.5) * shrink);
         const rr = Math.max(1, Math.round(pf.r * scale * (0.35 + 0.65 * shrink)));
@@ -477,18 +549,15 @@ export class ChemSystem {
         g.fillStyle(col, 0.14 * fade);
         g.fillCircle(px - 1, py - 1, Math.max(1, rr - 3));
       });
-      if (c.label) {
-        c.label.setPosition(Math.round(c.x - c.labelW / 2), Math.round(c.y - 34)).setAlpha(c.condense > 0 ? shrink : fade);
-      }
+      c.label?.setPosition(Math.round(c.x - c.labelW / 2), Math.round(c.y - 34)).setAlpha(fade);
     }
-    for (const l of this.lumps) l.label.setAlpha(l.fizz >= 0 ? 0 : Math.min(1, l.t / 1.5));
   }
 
   emitLights(): void {
     const L = this.s.lighting;
     for (const c of this.clouds) {
-      if (c.condense > 0) continue;
-      L.add(c.x, c.y - 9, 34, c.O > 0 && c.H === 0 ? E32.red : E32.silver, 0.25);
+      if (c.condense > 0 || !c.shown.length) continue;
+      L.add(c.x, c.y - 9, 34, c.shown.includes('O') && !this.hasH(c.shown) ? E32.red : E32.silver, 0.25);
     }
     for (const l of this.lumps) if (l.fizz >= 0) L.add(l.x, l.y - 2, 70, E32.amber, 0.9);
   }

@@ -1,13 +1,11 @@
 import Phaser from 'phaser';
 import type { RoomScene } from '../scenes/RoomScene';
 import { Actor } from './actor';
-import { ELEMENTS, ELEMENT_NAME, type Element } from '../element/types';
-import { ELEMENT_COLOR, ELEMENT_LIGHT, C, E32, SELOUT, mixColor, scaleColor } from '../art/palette';
-import { RULES } from '../element/data';
+import type { Element } from '../element/types';
+import { ELEMENT_COLOR, ELEMENT_LIGHT, E32, scaleColor } from '../art/palette';
 import type { HitInfo, HitResult } from '../combat/damage';
-import { basicAttack, skillAttack, SKILL_COOLDOWN, type Payload, type SwingAnim } from '../combat/attacks';
 import { heroOriginY } from '../art/customArt';
-import { HERO_ANIMS, HERO_ANCHORS, HERO_SOURCE, HERO_SPRING, type Dir } from '../art/heroSprites';
+import { HERO_ANIMS, HERO_ANCHORS, HERO_SOURCE, HERO_SPRING, SWING_HIT_DELAY, type Dir } from '../art/heroSprites';
 import { SpringChain } from './spring';
 import { DEPTH } from '../config';
 import { playSfx } from '../audio/sfx';
@@ -16,13 +14,15 @@ const SPEED = 105;
 const ROLL_SPEED = 230;
 const ROLL_TIME = 0.3; // 무적 0.3초
 const ROLL_RECHARGE = 1.1;
-const SWITCH_CD = 0.5; // 전환 쿨다운 (전체 공용)
-const PERFECT_WINDOW = 0.15;
-const DASH_SPEED = 440;
-const DASH_TIME = 0.16;
 const HURT_INVULN = 0.6;
+/** 좌클릭 검 휘두르기 (원소 없음): 내려베기 ↔ 올려베기 번갈아 */
+const SWING_RANGE = 28;
+const SWING_HALF = 1.15;
+const SWING_CD = 0.3;
+const SWING_DAMAGE = 5;
 
-type Keys = Record<'W' | 'A' | 'S' | 'D' | 'SPACE' | 'ONE' | 'TWO' | 'THREE' | 'FOUR' | 'Q', Phaser.Input.Keyboard.Key>;
+type Keys = Record<'W' | 'A' | 'S' | 'D' | 'SPACE' | 'Q', Phaser.Input.Keyboard.Key>;
+type SwingAnim = 'attack' | 'attack2' | 'cast';
 
 export interface PlayerStats {
   maxHp: number;
@@ -30,37 +30,23 @@ export interface PlayerStats {
   atk: number;
   speed: number;
   rollMax: number;
-  attach: number;
   potions: number;
 }
 
 export class Player extends Actor {
+  /** 망토 안감·장갑·검날(원소 레이어) 색. 원소 전환은 지금 없음 */
   element: Element = 'fire';
-  switchCd = 0;
-  readonly skillCd: Record<Element, number> = { fire: 0, water: 0, wind: 0, lightning: 0 };
   attackCd = 0;
   lockT = 0;
-  comboStep = 0;
-  comboT = 0;
   atkMult: number;
   speedMult: number;
-  attachBase: number;
   potions: number;
-  freeLightningT = 0;
-  private boostT = 0;
 
   rollMax: number;
   rollCharges: number;
   rollRecharge = 0;
   rollT = 0;
-  private rollStart = -99;
   private rollDir = new Phaser.Math.Vector2(0, 1);
-  private perfectThisRoll = false;
-
-  private dashT = 0;
-  private dashDir = new Phaser.Math.Vector2();
-  private dashHit = new Set<Actor>();
-  private onDashHit: ((t: Actor) => void) | null = null;
 
   hurtInvulnT = 0;
   private hurtAnimT = 0;
@@ -70,8 +56,6 @@ export class Player extends Actor {
   private dir: Dir = 'down';
   private stepT = 0;
   private deathT = 0;
-  empowered = 0;
-  absorbed: Element | null = null;
 
   aimX = 0;
   aimY = 0;
@@ -83,7 +67,6 @@ export class Player extends Actor {
   private readonly springFront: Phaser.GameObjects.Graphics;
   private readonly hair: SpringChain;
   private readonly ribbons: SpringChain[];
-  private glowFx: { color: number } | null = null;
   private lastDt = 1 / 60;
   inputLocked = false;
 
@@ -106,17 +89,15 @@ export class Player extends Actor {
     this.speedMult = st.speed;
     this.rollMax = st.rollMax;
     this.rollCharges = st.rollMax;
-    this.attachBase = st.attach;
     this.potions = st.potions;
-    this.keys = s.input.keyboard!.addKeys('W,A,S,D,SPACE,ONE,TWO,THREE,FOUR,Q') as Keys;
+    this.keys = s.input.keyboard!.addKeys('W,A,S,D,SPACE,Q') as Keys;
     this.aura = s.add.graphics().setDepth(4);
     this.springBack = s.add.graphics();
     this.springFront = s.add.graphics();
     this.hair = new SpringChain(HERO_SPRING.count, 2, x, y - 20);
     this.ribbons = [new SpringChain(5, 2, x, y - 18, 0.84), new SpringChain(4, 2, x, y - 18, 0.8)];
     // 검날(원소 레이어)에만 은은한 글로우
-    const fx = this.elemImg.preFX?.addGlow(ELEMENT_COLOR[element], 1.2, 0, false, 0.1, 4);
-    this.glowFx = fx ?? null;
+    this.elemImg.preFX?.addGlow(ELEMENT_COLOR[element], 1.2, 0, false, 0.1, 4);
     this.play('idle_down');
   }
 
@@ -131,29 +112,11 @@ export class Player extends Actor {
       return;
     }
     this.baseUpdate(dt);
-    // 원소 색이 스르륵 바뀜 (약 0.25초)
-    const target = ELEMENT_COLOR[this.element];
-    if (this.elemTint !== target) {
-      const k = 1 - Math.exp(-dt * 14);
-      const next = mixColor(this.elemTint ?? target, target, k);
-      this.elemTint = next === this.elemTint ? target : next;
-      if (this.glowFx) this.glowFx.color = this.elemTint;
-    }
-
-    this.switchCd = Math.max(0, this.switchCd - dt);
     this.attackCd = Math.max(0, this.attackCd - dt);
     this.lockT = Math.max(0, this.lockT - dt);
     this.hurtInvulnT = Math.max(0, this.hurtInvulnT - dt);
     this.hurtAnimT = Math.max(0, this.hurtAnimT - dt);
     this.actionT = Math.max(0, this.actionT - dt);
-    this.boostT = Math.max(0, this.boostT - dt);
-    this.freeLightningT = Math.max(0, this.freeLightningT - dt);
-    for (const el of ELEMENTS) this.skillCd[el] = Math.max(0, this.skillCd[el] - dt);
-    if (this.freeLightningT > 0) this.skillCd.lightning = Math.min(this.skillCd.lightning, 0.25);
-    if (this.comboT > 0) {
-      this.comboT -= dt;
-      if (this.comboT <= 0) this.comboStep = 0;
-    }
     if (this.rollCharges < this.rollMax) {
       this.rollRecharge += dt;
       if (this.rollRecharge >= ROLL_RECHARGE) {
@@ -175,7 +138,6 @@ export class Player extends Actor {
 
     if (this.disabled) {
       this.rollT = 0;
-      this.dashT = 0;
       this.squashX = this.squashY = 1;
       this.move(0, 0, dt);
       this.pickAnim(false);
@@ -183,36 +145,18 @@ export class Player extends Actor {
     }
 
     if (!locked) {
-      [k.ONE, k.TWO, k.THREE, k.FOUR].forEach((key, i) => {
-        if (Phaser.Input.Keyboard.JustDown(key)) this.trySwitch(ELEMENTS[i]);
-      });
       if (Phaser.Input.Keyboard.JustDown(k.Q)) this.drinkPotion();
-      if (Phaser.Input.Keyboard.JustDown(k.SPACE) && this.rollCharges > 0 && this.rollT <= 0 && this.dashT <= 0) {
+      if (Phaser.Input.Keyboard.JustDown(k.SPACE) && this.rollCharges > 0 && this.rollT <= 0) {
         if (mx !== 0 || my !== 0) this.rollDir.set(mx / mlen, my / mlen);
         else this.rollDir.set(Math.cos(this.aimAngle), Math.sin(this.aimAngle));
         this.rollCharges--;
         this.rollT = ROLL_TIME;
-        this.rollStart = this.s.gameTime;
-        this.perfectThisRoll = false;
-        this.comboStep = 0;
         this.actionT = 0;
         this.s.vfx.dust(this.x, this.y, 5);
         playSfx('roll');
       }
       const ptr = this.s.input.activePointer;
-      if (this.rollT <= 0 && this.dashT <= 0 && this.s.combatEnabled) {
-        if (ptr.rightButtonDown() && this.skillCd[this.element] <= 0) {
-          this.skillCd[this.element] = this.freeLightningT > 0 && this.element === 'lightning' ? 0.25 : SKILL_COOLDOWN[this.element];
-          const anim = skillAttack(this.s, this, this.makePayload());
-          this.startAction(anim);
-          this.attackCd = Math.max(this.attackCd, 0.15);
-        } else if (ptr.leftButtonDown() && this.attackCd <= 0) {
-          const t = basicAttack(this.s, this, this.makePayload());
-          this.attackCd = t.cooldown;
-          this.lockT = t.lock;
-          this.startAction(t.anim);
-        }
-      }
+      if (this.rollT <= 0 && this.s.combatEnabled && ptr.leftButtonDown() && this.attackCd <= 0) this.swing();
     }
 
     let vx: number;
@@ -233,23 +177,8 @@ export class Player extends Actor {
         this.shadowScale = 1;
         this.s.vfx.dust(this.x, this.y, 4);
       }
-    } else if (this.dashT > 0) {
-      this.dashT -= dt;
-      vx = this.dashDir.x * DASH_SPEED;
-      vy = this.dashDir.y * DASH_SPEED;
-      this.trail(dt, ELEMENT_COLOR.fire);
-      this.s.terrain.applyElement(this.x, this.y, 6, 'fire');
-      this.s.vfx.spark(this.x, this.y, ELEMENT_COLOR.fire, 2, 30, 40);
-      for (const t of this.s.combat.inCircle(this.x, this.y, 12, 'enemy')) {
-        if (this.dashHit.has(t)) continue;
-        this.dashHit.add(t);
-        this.onDashHit?.(t);
-      }
-
     } else {
-      let sp = SPEED * this.speedMult * (this.lockT > 0 ? 0.4 : 1);
-      if (this.boostT > 0) sp *= 1.3;
-      if (this.s.engine.mods.flags.has('flames_speed') && this.s.fields.onFriendlyFlames(this.x, this.y)) sp *= 1.3;
+      const sp = SPEED * this.speedMult * (this.lockT > 0 ? 0.4 : 1);
       vx = (mx / mlen) * sp;
       vy = (my / mlen) * sp;
       moving = mx !== 0 || my !== 0;
@@ -272,8 +201,28 @@ export class Player extends Actor {
     this.lockT = Math.max(this.lockT, 0.08);
   }
 
+  /** 좌클릭: 원소 없이 그냥 베기. 예비동작이 끝나고 칼이 내려오는 순간에 판정 */
+  private swing(): void {
+    const s = this.s;
+    const a = this.aimAngle;
+    const anim = this.nextSwing();
+    this.startAction(anim);
+    this.attackCd = SWING_CD;
+    this.lockT = 0.14;
+    s.scheduler.after(SWING_HIT_DELAY, () => {
+      if (this.dead) return;
+      s.vfx.slash(this.x, this.y - 8, a, SWING_RANGE, SWING_HALF, E32.silver, false, anim === 'attack2');
+      this.lunge(50);
+      for (const t of s.combat.inArc(this.x, this.y, SWING_RANGE, a, SWING_HALF, 'enemy')) {
+        s.combat.hit(t, { damage: SWING_DAMAGE * this.atkMult, knockback: 80, fromX: this.x, fromY: this.y, hitstop: 0.06 });
+        s.vfx.spark(t.x, t.y - 8, E32.white, 4, 60, 40);
+      }
+      playSfx('slash');
+    });
+  }
+
   /** 내려베기 ↔ 올려베기 번갈아 */
-  nextSwing(): SwingAnim {
+  private nextSwing(): SwingAnim {
     this.swingFlip = !this.swingFlip;
     return this.swingFlip ? 'attack' : 'attack2';
   }
@@ -302,8 +251,7 @@ export class Player extends Actor {
       return;
     }
     this.dir = this.dirFor(this.aimAngle);
-    if (this.dashT > 0) this.play(`attack_${this.dir}`);
-    else if (this.hurtAnimT > 0) this.play(`hurt_${this.dir}`);
+    if (this.hurtAnimT > 0) this.play(`hurt_${this.dir}`);
     else if (this.actionT > 0) this.play(`${this.action}_${this.dir}`);
     else this.play(`${moving ? 'run' : 'idle'}_${this.dir}`);
   }
@@ -316,51 +264,9 @@ export class Player extends Actor {
     }
   }
 
-  trySwitch(el: Element): void {
-    if (el === this.element || this.switchCd > 0) return;
-    this.element = el;
-    this.elementTint = ELEMENT_COLOR[el];
-
-    this.switchCd = SWITCH_CD;
-    this.empowered = this.s.engine.mods.relics.has('twin_hands') ? 2 : 1;
-    if (this.s.engine.mods.relics.has('boots')) this.boostT = 2;
-    this.comboStep = 0;
-    this.s.vfx.ring(this.x, this.y - 2, 3, 22, ELEMENT_COLOR[el], 0.25, 2);
-    this.s.vfx.spark(this.x, this.y - 8, ELEMENT_LIGHT[el], 10, 60, 60);
-    this.s.vfx.glow(this.x, this.y - 10, 22, ELEMENT_COLOR[el], 0.25);
-    this.s.lighting.flash(this.x, this.y, 80, ELEMENT_COLOR[el], 0.3);
-    playSfx('switch');
-  }
-
-  private makePayload(): Payload {
-    const emp = this.empowered > 0;
-    const pay: Payload = {
-      element: this.element,
-      dmgMult: (emp ? RULES.empoweredDamageMult : 1) * this.atkMult,
-      attachDuration: this.attachBase * (emp ? RULES.empoweredAttachMult : 1),
-      extra: this.absorbed,
-      empowered: emp,
-    };
-    if (this.empowered > 0) this.empowered--;
-    this.absorbed = null;
-    return pay;
-  }
-
   lunge(strength: number): void {
     this.impulse.x += Math.cos(this.aimAngle) * strength;
     this.impulse.y += Math.sin(this.aimAngle) * strength;
-  }
-
-  startDash(angle: number, onHit: (t: Actor) => void): void {
-    this.dashT = DASH_TIME;
-    this.dashDir.set(Math.cos(angle), Math.sin(angle));
-    this.dashHit.clear();
-    this.onDashHit = onHit;
-  }
-
-  teleport(x: number, y: number): void {
-    this.phys.body.reset(x, y);
-    this.impulse.set(0, 0);
   }
 
   heal(n: number): void {
@@ -384,34 +290,9 @@ export class Player extends Actor {
   }
 
   override incoming(h: HitInfo): HitResult | 'ok' {
-    if (this.rollT > 0) {
-      const sinceRoll = this.s.gameTime - this.rollStart;
-      const win = PERFECT_WINDOW * (this.s.engine.mods.relics.has('feather') ? 1.5 : 1);
-      if (h.perfectDodgeable && h.element && sinceRoll <= win && !this.perfectThisRoll) {
-        this.perfectThisRoll = true;
-        this.onPerfectDodge(h.element);
-        return 'perfect';
-      }
-      return 'dodged';
-    }
+    if (this.rollT > 0) return 'dodged';
     if (this.hurtInvulnT > 0 && !h.isReaction && !h.environmental) return 'ignored';
-    if (!h.isReaction && !h.environmental && this.s.fields.inSteam(this.x, this.y) && Math.random() < 0.5) {
-      this.s.vfx.floatText(this.x, this.y - 26, '회피', 0xffffff, 6, 0.5, 8);
-      return 'dodged';
-    }
     return 'ok';
-  }
-
-  private onPerfectDodge(el: Element): void {
-    this.absorbed = el;
-    const c = ELEMENT_COLOR[el];
-    this.s.vfx.floatText(this.x, this.y - 30, `완벽 회피! +${ELEMENT_NAME[el]}`, c, 6, 0.9, 14, true);
-    this.s.vfx.ring(this.x, this.y - 4, 2, 30, c, 0.3, 2);
-    this.s.vfx.spark(this.x, this.y - 8, c, 16, 90, 70);
-    this.s.vfx.glow(this.x, this.y - 8, 30, c, 0.35);
-    this.s.hitstop.request(0.08);
-    this.s.recordPerfect();
-    playSfx('perfect');
   }
 
   override onDamaged(h: HitInfo, _dmg: number): void {
@@ -512,16 +393,6 @@ export class Player extends Actor {
 
     const g = this.aura;
     g.clear();
-    const t = this.s.gameTime;
-    if (this.empowered > 0) {
-      g.lineStyle(1, ELEMENT_COLOR[this.element], 0.6 + 0.4 * Math.sin(t * 16));
-      g.strokeEllipse(this.x, this.y + 1, 18, 7);
-    }
-    if (this.absorbed) {
-      const a = t * 8;
-      g.fillStyle(ELEMENT_COLOR[this.absorbed]);
-      g.fillCircle(this.x + Math.cos(a) * 9, this.y - 10 + Math.sin(a) * 4, 2);
-    }
     // 조준 표시 (발밑 원 위의 점)
     g.fillStyle(0xffffff, 0.55);
     g.fillRect(Math.round(this.x + Math.cos(this.aimAngle) * 14) - 1, Math.round(this.y - 4 + Math.sin(this.aimAngle) * 10) - 1, 2, 2);
