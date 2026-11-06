@@ -9,7 +9,7 @@ import { BOONS, RELICS, REGION, getRun, type BoonDef, type RelicDef } from '../r
 import { MASTERY_DESC, REACTION_NAME, reactionLevel } from '../run/mods';
 import { META_DEF, buySecondary, buyStat, meta, primaryFor, saveMeta, secondaryStatus, statCost, statLevel } from '../run/meta';
 import { playSfx, toggleMute } from '../audio/sfx';
-import { CHEM_COLOR, REAGENTS, REAGENT_KEY, THROW_CD, type ChemEvent, type ChemTerm } from '../chem/chemistry';
+import { BELTS, CHEM_COLOR, REAGENTS, THROW_CD, type ChemEvent, type ChemTerm, type Reagent } from '../chem/chemistry';
 import { BREATH_CD } from '../chem/flamethrower';
 import { formulaLine, formulaTexts, joinTerms, toCssColor, type FormulaPiece, type FormulaText } from '../chem/formula';
 
@@ -47,7 +47,8 @@ export class UIScene extends Phaser.Scene {
   /** 지금 떠 있는 반응식의 마지막 항 (다음 반응식이 그 자리에서 이어지게) */
   private chemTail: { key: string; abs: number }[] = [];
   /** 시약 슬롯 글자 (CO₂처럼 아래 첨자가 있어서 화학식으로 그림) */
-  private reagentSyms: { c: Phaser.GameObjects.Container; w: number }[] = [];
+  /** 시약 기호: 지금 줄 칸에 쓰는 큰 것, 다른 줄 작은 칸에 쓰는 작은 것 */
+  private reagentSyms = new Map<Reagent, Record<'slot' | 'small', { c: Phaser.GameObjects.Container; w: number }>>();
   /** 시약 슬롯 오른쪽의 브레스(좌클릭) 슬롯 아이콘 */
   private breathIcon!: Phaser.GameObjects.Image;
   private chemGen = 0;
@@ -112,13 +113,17 @@ export class UIScene extends Phaser.Scene {
     this.hud.add(this.icon(9, 23, 'potion'));
     this.hud.add(this.icon(40, 23, 'gold'));
     this.hud.add(this.icon(76, 23, 'essence'));
-    REAGENTS.forEach((rg, i) => {
-      this.slotLayer.add(t(`rkey${i}`, 0, 0, 8, toCss(E32.steel)));
-      const sym = formulaTexts(this, rg, toCssColor(CHEM_COLOR[rg]), 'slot');
-      const sc = this.add.container(0, 0, sym.texts.map((ft) => ft.t));
-      this.slotLayer.add(sc);
-      this.reagentSyms.push({ c: sc, w: sym.w });
-    });
+    for (let i = 0; i < BELTS[0].length; i++) this.slotLayer.add(t(`rkey${i}`, 0, 0, 8, toCss(E32.steel)).setText(`${i + 1}`));
+    for (const rg of REAGENTS) {
+      const make = (size: 'slot' | 'small') => {
+        const sym = formulaTexts(this, rg, toCssColor(CHEM_COLOR[rg]), size);
+        const c = this.add.container(0, 0, sym.texts.map((ft) => ft.t));
+        this.slotLayer.add(c);
+        return { c, w: sym.w };
+      };
+      this.reagentSyms.set(rg, { slot: make('slot'), small: make('small') });
+    }
+    this.slotLayer.add(t('fkey', 0, 0, 8, toCss(E32.steel)).setText('F'));
     this.slotLayer.add(t('bkey', 0, 0, 8, toCss(E32.steel)));
     this.breathIcon = this.icon(0, 0, 'fire');
     this.slotLayer.add(this.breathIcon);
@@ -237,7 +242,7 @@ export class UIScene extends Phaser.Scene {
         const lines = [
           'WASD 이동 · 마우스 조준 · 좌클릭 불 뿜기 · 스페이스 구르기',
           '1 수소(H) · 2 산소(O) · 3 나트륨(Na) · 4 탄소(C) 던지기',
-          'Q 포션 · E 상호작용',
+          'F 시약 줄 바꾸기 → 1 염소(Cl) · 2 질소(N) · Q 포션 · E 상호작용',
         ];
         c.add(this.txt(W / 2, 160, lines.join('\n'), 8, toCss(E32.white)).setOrigin(0.5).setAlign('center'));
         const go = this.txt(W / 2, 204, '클릭해서 시작', 12, toCss(E32.yellow)).setOrigin(0.5);
@@ -481,7 +486,7 @@ export class UIScene extends Phaser.Scene {
           '[ 조작 ]',
           'WASD 이동 · 마우스 조준 · 스페이스 구르기',
           '좌클릭 불 뿜기 (불씨, 직접 피해 없음, 쿨타임 1.5초)',
-          '1 수소 · 2 산소 · 3 나트륨 · 4 탄소 던지기',
+          '1~4 지금 줄의 시약 던지기 · F 시약 줄 바꾸기',
           'Q 포션 · E 상호작용 · H/ESC 일시정지 · M 소리',
           '',
           '[ 규칙 ]',
@@ -592,36 +597,53 @@ export class UIScene extends Phaser.Scene {
       }
     }
 
-    // 시약 슬롯 (왼쪽 아래): 1 수소 · 2 산소 · 3 나트륨
+    // 시약 슬롯 (왼쪽 아래): 지금 줄은 1~4 칸, 그 위 작은 칸은 F로 바꿀 다른 줄
     const gs = this.gs;
     gs.clear();
     const baseY = H - SLOT - 14;
     const rx0 = SLOT_X;
     const throwCd = r.chem?.throwCd ?? 0;
-    REAGENTS.forEach((rg, i) => {
+    const belt = r.chem?.belt ?? 0;
+    const other = (belt + 1) % BELTS.length;
+    for (const sym of this.reagentSyms.values()) {
+      sym.slot.c.setVisible(false);
+      sym.small.c.setVisible(false);
+    }
+    const frame = (x: number, y: number, w: number, h: number, col: number | null, a: number) => {
+      gs.fillStyle(E32.black, 1);
+      gs.fillRect(x - 1, y - 1, w + 2, h + 2);
+      gs.fillStyle(E32.night, 1);
+      gs.fillRect(x, y, w, h);
+      gs.fillStyle(col ?? E32.indigo, col === null ? 1 : a);
+      gs.fillRect(x, y, w, 1);
+      gs.fillRect(x, y + h - 1, w, 1);
+      gs.fillRect(x, y, 1, h);
+      gs.fillRect(x + w - 1, y, 1, h);
+    };
+    const MINI = 13;
+    BELTS[belt].forEach((rg, i) => {
       const x = rx0 + i * (SLOT + GAP);
       const y = baseY;
-      const col = CHEM_COLOR[rg];
-      gs.fillStyle(E32.black, 1);
-      gs.fillRect(x - 1, y - 1, SLOT + 2, SLOT + 2);
-      gs.fillStyle(E32.night, 1);
-      gs.fillRect(x, y, SLOT, SLOT);
-      gs.fillStyle(col, 0.7);
-      gs.fillRect(x, y, SLOT, 1);
-      gs.fillRect(x, y + SLOT - 1, SLOT, 1);
-      gs.fillRect(x, y, 1, SLOT);
-      gs.fillRect(x + SLOT - 1, y, 1, SLOT);
-      if (throwCd > 0) {
+      frame(x, y, SLOT, SLOT, rg && CHEM_COLOR[rg], 0.7);
+      if (rg && throwCd > 0) {
         gs.fillStyle(E32.black, 0.65);
         gs.fillRect(x + 1, y + 1, SLOT - 2, Math.round((SLOT - 2) * Math.min(1, throwCd / THROW_CD)));
       }
-      T[`rkey${i}`].setPosition(x + 2, y + 1).setText(REAGENT_KEY[rg]);
-      const sym = this.reagentSyms.at(i);
-      sym?.c.setPosition(Math.round(x + SLOT / 2 - sym.w / 2), y + 7);
+      T[`rkey${i}`].setPosition(x + 2, y + 1);
+      const sym = rg && this.reagentSyms.get(rg)?.slot;
+      sym?.c.setVisible(true).setPosition(Math.round(x + SLOT / 2 - sym.w / 2), y + 7);
     });
+    BELTS[other].forEach((rg, i) => {
+      const x = rx0 + i * (SLOT + GAP);
+      const y = baseY - MINI - 3;
+      frame(x, y, SLOT, MINI, rg && CHEM_COLOR[rg], 0.35);
+      const sym = rg && this.reagentSyms.get(rg)?.small;
+      sym?.c.setVisible(true).setAlpha(0.6).setPosition(Math.round(x + SLOT / 2 - sym.w / 2), y + 1);
+    });
+    T.fkey.setPosition(rx0 + BELTS[0].length * (SLOT + GAP) + GAP * 2 + 2, baseY - MINI - 2);
     // 브레스 슬롯 (좌클릭, 쿨타임이 위에서부터 걷힘)
     {
-      const x = rx0 + REAGENTS.length * (SLOT + GAP) + GAP * 2;
+      const x = rx0 + BELTS[0].length * (SLOT + GAP) + GAP * 2;
       const y = baseY;
       const cd = r.flame?.cd ?? 0;
       gs.fillStyle(E32.black, 1);
@@ -640,12 +662,12 @@ export class UIScene extends Phaser.Scene {
       }
       T.bkey.setPosition(x + 2, y + 1).setText('클릭');
     }
-    const reagentW = (REAGENTS.length + 1) * (SLOT + GAP) + GAP;
+    const reagentW = (BELTS[0].length + 1) * (SLOT + GAP) + GAP;
     // 캐릭터가 UI 뒤에 있으면 반투명 (화면 좌표 기준)
     const cam = r.cameras.main;
     const psx = p.x - cam.worldView.x;
     const psy = p.y - cam.worldView.y;
-    const behind = psx < rx0 + reagentW + 30 && psy > baseY - 30;
+    const behind = psx < rx0 + reagentW + 30 && psy > baseY - MINI - 30;
     this.slotLayer.setAlpha(Phaser.Math.Linear(this.slotLayer.alpha, behind ? 0.3 : 1, 0.2));
 
     // 방 이름·진행도·목표 (오른쪽 위)
