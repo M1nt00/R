@@ -9,8 +9,7 @@ import { BOONS, RELICS, REGION, getRun, type BoonDef, type RelicDef } from '../r
 import { MASTERY_DESC, REACTION_NAME, reactionLevel } from '../run/mods';
 import { META_DEF, buySecondary, buyStat, meta, primaryFor, saveMeta, secondaryStatus, statCost, statLevel } from '../run/meta';
 import { playSfx, toggleMute } from '../audio/sfx';
-import { BELTS, CHEM_COLOR, REAGENTS, THROW_CD, type ChemEvent, type ChemTerm, type Reagent } from '../chem/chemistry';
-import { BREATH_CD } from '../chem/flamethrower';
+import { BELTS, CHEM_COLOR, REAGENTS, REAGENT_COLOR, THROW_CD, type ChemEvent, type ChemTerm, type Reagent } from '../chem/chemistry';
 import { formulaLine, formulaTexts, joinTerms, toCssColor, type FormulaPiece, type FormulaText } from '../chem/formula';
 
 const W = VIEW_W;
@@ -46,11 +45,11 @@ export class UIScene extends Phaser.Scene {
   private chemRuns: FormulaText[] = [];
   /** 지금 떠 있는 반응식의 마지막 항 (다음 반응식이 그 자리에서 이어지게) */
   private chemTail: { key: string; abs: number }[] = [];
-  /** 시약 슬롯 글자 (CO₂처럼 아래 첨자가 있어서 화학식으로 그림) */
-  /** 시약 기호: 지금 줄 칸에 쓰는 큰 것, 다른 줄 작은 칸에 쓰는 작은 것 */
-  private reagentSyms = new Map<Reagent, Record<'slot' | 'small', { c: Phaser.GameObjects.Container; w: number }>>();
-  /** 시약 슬롯 오른쪽의 브레스(좌클릭) 슬롯 아이콘 */
-  private breathIcon!: Phaser.GameObjects.Image;
+  /** 시약 슬롯 글자 (H₂처럼 아래 첨자가 있어서 화학식으로 그림) */
+  private reagentSyms = new Map<Reagent, { c: Phaser.GameObjects.Container; w: number }>();
+  /** 화면에 그리는 시약 줄, F로 바꿀 때 앞뒤 줄이 엇갈리는 진행도 (0 → 1) */
+  private shownBelt = 0;
+  private beltAnim = { k: 1 };
   private chemGen = 0;
 
   constructor() {
@@ -115,18 +114,12 @@ export class UIScene extends Phaser.Scene {
     this.hud.add(this.icon(76, 23, 'essence'));
     for (let i = 0; i < BELTS[0].length; i++) this.slotLayer.add(t(`rkey${i}`, 0, 0, 8, toCss(E32.steel)).setText(`${i + 1}`));
     for (const rg of REAGENTS) {
-      const make = (size: 'slot' | 'small') => {
-        const sym = formulaTexts(this, rg, toCssColor(CHEM_COLOR[rg]), size);
-        const c = this.add.container(0, 0, sym.texts.map((ft) => ft.t));
-        this.slotLayer.add(c);
-        return { c, w: sym.w };
-      };
-      this.reagentSyms.set(rg, { slot: make('slot'), small: make('small') });
+      const sym = formulaTexts(this, rg, toCssColor(REAGENT_COLOR[rg]), 'slot');
+      const c = this.add.container(0, 0, sym.texts.map((ft) => ft.t));
+      this.slotLayer.add(c);
+      this.reagentSyms.set(rg, { c, w: sym.w });
     }
     this.slotLayer.add(t('fkey', 0, 0, 8, toCss(E32.steel)).setText('F'));
-    this.slotLayer.add(t('bkey', 0, 0, 8, toCss(E32.steel)));
-    this.breathIcon = this.icon(0, 0, 'fire');
-    this.slotLayer.add(this.breathIcon);
     this.banner = this.txt(W / 2, 70, '', 12).setOrigin(0.5).setAlpha(0);
 
     this.game.events.on('banner', (text: string, color: number) => {
@@ -232,7 +225,7 @@ export class UIScene extends Phaser.Scene {
       (c) => {
         c.add(this.txt(W / 2, 70, '원소 저글러', 24).setOrigin(0.5));
         REAGENTS.forEach((rg, i) => {
-          const { texts, w } = formulaTexts(this, rg, toCssColor(CHEM_COLOR[rg]), 'big');
+          const { texts, w } = formulaTexts(this, rg, toCssColor(REAGENT_COLOR[rg]), 'big');
           const sym = this.add.container(Math.round(W / 2 + (i - (REAGENTS.length - 1) / 2) * 68 - w / 2), 92);
           for (const ft of texts) sym.add(ft.t);
           c.add(sym);
@@ -241,8 +234,8 @@ export class UIScene extends Phaser.Scene {
         c.add(this.txt(W / 2, 132, '시약을 던져서 실제 화학 반응을 일으켜요', 10, toCss(E32.silver)).setOrigin(0.5));
         const lines = [
           'WASD 이동 · 마우스 조준 · 좌클릭 불 뿜기 · 스페이스 구르기',
-          '1 수소(H) · 2 산소(O) · 3 나트륨(Na) · 4 탄소(C) 던지기',
-          'F 시약 줄 바꾸기 → 1 염소(Cl) · 2 질소(N) · Q 포션 · E 상호작용',
+          '1 수소 · 2 산소 · 3 나트륨 · 4 탄소 던지기',
+          'F 시약 줄 바꾸기 → 1 염소 · 2 질소 · Q 포션 · E 상호작용',
         ];
         c.add(this.txt(W / 2, 160, lines.join('\n'), 8, toCss(E32.white)).setOrigin(0.5).setAlign('center'));
         const go = this.txt(W / 2, 204, '클릭해서 시작', 12, toCss(E32.yellow)).setOrigin(0.5);
@@ -491,15 +484,14 @@ export class UIScene extends Phaser.Scene {
           '',
           '[ 규칙 ]',
           '· 시약은 마우스 쪽으로 날아가요 (최대 150px)',
-          '· 기체는 구름으로 남고, 같은 구름에 던져야 섞여요',
-          '· 수소와 산소는 섞기만 하면 그대로예요',
-          '· 수소에 불이 붙으면 터지고 물이 남아요',
-          '  산소가 섞여 있으면 큰 폭발, 없으면 약한 폭발',
+          '· 기체는 구름이 되고, 같은 구름에 던져야 섞여요',
+          '· 나트륨·탄소는 바닥에 남고 같은 자리면 쌓여요',
+          '· 공기에는 산소가 없어요: 불은 던진 것끼리만',
+          '  반응시키고, 반응식 계수만큼 모여야 해요',
+          '· 질소 구름이 닿은 수소 구름엔 불이 안 붙어요',
           '· 폭발은 옆 수소 구름에 옮겨붙어요',
-          '· 나트륨은 물에 닿으면 폭발해요',
-          '· 탄소 + 산소 둘 → 이산화탄소',
-          '· 이산화탄소 구름이 물 위에 있으면 광합성',
-          '  포도당 열매를 먹으면 HP 회복',
+          '· 염소·이산화질소는 독가스, 흰 연기는 느려짐',
+          '· 광합성 열매를 먹으면 HP +60',
         ];
         c.add(this.txt(22, 34, left.join('\n'), 8));
         // 반응식은 아래 첨자가 있는 화학식으로
@@ -507,20 +499,23 @@ export class UIScene extends Phaser.Scene {
         const P = (f: string, color: number): FormulaPiece => ({ f, color });
         const plus = { f: '+', color: CHEM_COLOR.op, op: true };
         const arrow = { f: '→', color: E32.silver, op: true };
-        const eqs: [FormulaPiece[], string][] = [
-          [[P('H', CHEM_COLOR.H), plus, P('H', CHEM_COLOR.H), arrow, P('H2', CHEM_COLOR.H)], '저절로 (산소 원자 둘도 같은 식)'],
-          [[P('C', CHEM_COLOR.C), plus, P('O', CHEM_COLOR.O), arrow, P('CO', CHEM_COLOR.CO)], '저절로, 산소 하나 더 → 이산화탄소'],
-          [[P('2H2', CHEM_COLOR.H), plus, P('O2', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)], '불 → 산소 없으면 약한, 섞으면 큰 폭발'],
-          [[P('2H2O', CHEM_COLOR.water), plus, P('2Na', CHEM_COLOR.Na), arrow, P('2NaOH', CHEM_COLOR.naoh), plus, P('H2', CHEM_COLOR.H)], '폭발, 물은 1 줄어듦'],
-          [[P('6CO2', CHEM_COLOR.CO2), plus, P('6H2O', CHEM_COLOR.water), arrow, P('C6H12O6', CHEM_COLOR.glucose), plus, P('6O2', CHEM_COLOR.O)], '물 위 이산화탄소 → 열매 + 산소'],
-          [[P('C6H12O6', CHEM_COLOR.glucose), plus, P('6O2', CHEM_COLOR.O), arrow, P('6CO2', CHEM_COLOR.CO2), plus, P('6H2O', CHEM_COLOR.water)], '열매 먹기 (세포 호흡) → HP +25'],
+        const eqs: FormulaPiece[][] = [
+          [P('2H2', CHEM_COLOR.H), plus, P('O2', CHEM_COLOR.O), arrow, P('2H2O', CHEM_COLOR.water)],
+          [P('H2', CHEM_COLOR.H), plus, P('Cl2', CHEM_COLOR.Cl), arrow, P('2HCl', CHEM_COLOR.HCl)],
+          [P('N2', CHEM_COLOR.N), plus, P('3H2', CHEM_COLOR.H), arrow, P('2NH3', CHEM_COLOR.NH3)],
+          [P('NH3', CHEM_COLOR.NH3), plus, P('HCl', CHEM_COLOR.HCl), arrow, P('NH4Cl', CHEM_COLOR.NH4Cl)],
+          [P('N2', CHEM_COLOR.N), plus, P('2O2', CHEM_COLOR.O), arrow, P('2NO2', CHEM_COLOR.NO2)],
+          [P('C', CHEM_COLOR.C), plus, P('O2', CHEM_COLOR.O), arrow, P('CO2', CHEM_COLOR.CO2)],
+          [P('2C', CHEM_COLOR.C), plus, P('O2', CHEM_COLOR.O), arrow, P('2CO', CHEM_COLOR.CO)],
+          [P('2H2O', CHEM_COLOR.water), plus, P('2Na', CHEM_COLOR.Na), arrow, P('2NaOH', CHEM_COLOR.naoh), plus, P('H2', CHEM_COLOR.H)],
+          [P('2Na', CHEM_COLOR.Na), plus, P('Cl2', CHEM_COLOR.Cl), arrow, P('2NaCl', CHEM_COLOR.NaCl)],
+          [P('HCl', CHEM_COLOR.HCl), plus, P('H2O', CHEM_COLOR.water), arrow, P('H3O+', CHEM_COLOR.acid), plus, P('Cl-', CHEM_COLOR.Cl)],
+          [P('6CO2', CHEM_COLOR.CO2), plus, P('6H2O', CHEM_COLOR.water), arrow, P('C6H12O6', CHEM_COLOR.glucose), plus, P('6O2', CHEM_COLOR.O)],
         ];
-        eqs.forEach(([pieces, note], i) => {
-          const y = 46 + i * 25;
+        eqs.forEach((pieces, i) => {
           const fl = formulaLine(this, pieces, 'small');
-          fl.c.setPosition(250, y);
+          fl.c.setPosition(250, 46 + i * 14);
           c.add(fl.c);
-          c.add(this.txt(250, y + 15, note, 8, toCss(E32.steel)));
         });
         const right = ['[ 이번 런 ]'];
         if (run) {
@@ -597,18 +592,21 @@ export class UIScene extends Phaser.Scene {
       }
     }
 
-    // 시약 슬롯 (왼쪽 아래): 지금 줄은 1~4 칸, 그 위 작은 칸은 F로 바꿀 다른 줄
+    // 시약 줄 (왼쪽 아래): 지금 줄 1~4칸이 앞, F로 바꿀 다른 줄은 그 뒤에 그림자처럼 어둡게 겹쳐 있음.
+    // F를 누르면 앞 줄은 살짝 내려가며 뒤로, 뒤 줄은 떠오르며 앞으로 (가운데서 앞뒤 그리는 순서가 바뀜)
     const gs = this.gs;
     gs.clear();
     const baseY = H - SLOT - 14;
     const rx0 = SLOT_X;
     const throwCd = r.chem?.throwCd ?? 0;
     const belt = r.chem?.belt ?? 0;
-    const other = (belt + 1) % BELTS.length;
-    for (const sym of this.reagentSyms.values()) {
-      sym.slot.c.setVisible(false);
-      sym.small.c.setVisible(false);
+    if (belt !== this.shownBelt) {
+      this.shownBelt = belt;
+      this.beltAnim.k = 0;
+      this.tweens.killTweensOf(this.beltAnim);
+      this.tweens.add({ targets: this.beltAnim, k: 1, duration: 200, ease: 'Sine.InOut' });
     }
+    for (const sym of this.reagentSyms.values()) sym.c.setVisible(false);
     const frame = (x: number, y: number, w: number, h: number, col: number | null, a: number) => {
       gs.fillStyle(E32.black, 1);
       gs.fillRect(x - 1, y - 1, w + 2, h + 2);
@@ -620,54 +618,41 @@ export class UIScene extends Phaser.Scene {
       gs.fillRect(x, y, 1, h);
       gs.fillRect(x + w - 1, y, 1, h);
     };
-    const MINI = 13;
-    BELTS[belt].forEach((rg, i) => {
-      const x = rx0 + i * (SLOT + GAP);
-      const y = baseY;
-      frame(x, y, SLOT, SLOT, rg && CHEM_COLOR[rg], 0.7);
-      if (rg && throwCd > 0) {
-        gs.fillStyle(E32.black, 0.65);
-        gs.fillRect(x + 1, y + 1, SLOT - 2, Math.round((SLOT - 2) * Math.min(1, throwCd / THROW_CD)));
-      }
-      T[`rkey${i}`].setPosition(x + 2, y + 1);
-      const sym = rg && this.reagentSyms.get(rg)?.slot;
-      sym?.c.setVisible(true).setPosition(Math.round(x + SLOT / 2 - sym.w / 2), y + 7);
-    });
-    BELTS[other].forEach((rg, i) => {
-      const x = rx0 + i * (SLOT + GAP);
-      const y = baseY - MINI - 3;
-      frame(x, y, SLOT, MINI, rg && CHEM_COLOR[rg], 0.35);
-      const sym = rg && this.reagentSyms.get(rg)?.small;
-      sym?.c.setVisible(true).setAlpha(0.6).setPosition(Math.round(x + SLOT / 2 - sym.w / 2), y + 1);
-    });
-    T.fkey.setPosition(rx0 + BELTS[0].length * (SLOT + GAP) + GAP * 2 + 2, baseY - MINI - 2);
-    // 브레스 슬롯 (좌클릭, 쿨타임이 위에서부터 걷힘)
-    {
-      const x = rx0 + BELTS[0].length * (SLOT + GAP) + GAP * 2;
-      const y = baseY;
-      const cd = r.flame?.cd ?? 0;
-      gs.fillStyle(E32.black, 1);
-      gs.fillRect(x - 1, y - 1, SLOT + 2, SLOT + 2);
-      gs.fillStyle(E32.night, 1);
-      gs.fillRect(x, y, SLOT, SLOT);
-      gs.fillStyle(E32.orange, cd > 0 ? 0.35 : 0.8);
-      gs.fillRect(x, y, SLOT, 1);
-      gs.fillRect(x, y + SLOT - 1, SLOT, 1);
-      gs.fillRect(x, y, 1, SLOT);
-      gs.fillRect(x + SLOT - 1, y, 1, SLOT);
-      this.breathIcon.setPosition(x + SLOT / 2, y + 14).setAlpha(cd > 0 ? 0.45 : 1);
-      if (cd > 0) {
-        gs.fillStyle(E32.black, 0.65);
-        gs.fillRect(x + 1, y + 1, SLOT - 2, Math.round((SLOT - 2) * Math.min(1, cd / BREATH_CD)));
-      }
-      T.bkey.setPosition(x + 2, y + 1).setText('클릭');
+    // 뒤 줄은 앞 줄에서 오른쪽 위로 비켜난 자리
+    const BX = 3;
+    const BY = -5;
+    const k = this.beltAnim.k;
+    const lift = Math.sin(Math.PI * k);
+    const rows = [
+      { b: (belt + 1) % BELTS.length, x: BX * k, y: BY * k + 4 * lift, dark: k, front: false },
+      { b: belt, x: BX * (1 - k), y: BY * (1 - k) - 6 * lift, dark: 1 - k, front: true },
+    ];
+    if (k < 0.5) rows.reverse();
+    for (const row of rows) {
+      BELTS[row.b].forEach((rg, i) => {
+        const x = Math.round(rx0 + i * (SLOT + GAP) + row.x);
+        const y = Math.round(baseY + row.y);
+        frame(x, y, SLOT, SLOT, rg && REAGENT_COLOR[rg], 0.7);
+        if (row.front && rg && throwCd > 0) {
+          gs.fillStyle(E32.black, 0.65);
+          gs.fillRect(x + 1, y + 1, SLOT - 2, Math.round((SLOT - 2) * Math.min(1, throwCd / THROW_CD)));
+        }
+        if (row.dark > 0) {
+          gs.fillStyle(E32.black, 0.6 * row.dark);
+          gs.fillRect(x - 1, y - 1, SLOT + 2, SLOT + 2);
+        }
+        const sym = rg && this.reagentSyms.get(rg);
+        sym?.c.setVisible(row.dark < 0.95).setAlpha(1 - row.dark).setPosition(Math.round(x + SLOT / 2 - sym.w / 2), y + 5);
+        if (row.front) T[`rkey${i}`].setPosition(x + 2, y + 1).setAlpha(1 - row.dark);
+      });
     }
-    const reagentW = (BELTS[0].length + 1) * (SLOT + GAP) + GAP;
+    T.fkey.setPosition(rx0 + BELTS[0].length * (SLOT + GAP) + BX + 1, baseY + BY - 2);
+    const reagentW = BELTS[0].length * (SLOT + GAP) + BX + 8;
     // 캐릭터가 UI 뒤에 있으면 반투명 (화면 좌표 기준)
     const cam = r.cameras.main;
     const psx = p.x - cam.worldView.x;
     const psy = p.y - cam.worldView.y;
-    const behind = psx < rx0 + reagentW + 30 && psy > baseY - MINI - 30;
+    const behind = psx < rx0 + reagentW + 30 && psy > baseY + BY - 30;
     this.slotLayer.setAlpha(Phaser.Math.Linear(this.slotLayer.alpha, behind ? 0.3 : 1, 0.2));
 
     // 방 이름·진행도·목표 (오른쪽 위)

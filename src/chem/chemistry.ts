@@ -8,34 +8,34 @@ import { playFx, type FxKey } from './fx';
 
 /**
  * 화학 반응 시험판 (설계 문서: 「화학 반응 액션 로그라이트 설계 문서」)
- * 시약 수소(H)·산소(O)·나트륨(Na)·탄소(C) (첫 줄), 염소(Cl)·질소(N) (F로 바꾸는 둘째 줄)을 던지고, 화염방사기로 불씨를 붙인다.
- *   H + H → H₂, O + O → O₂      원자끼리는 저절로 결합 (같은 구름 안에서)
- *   C + O → CO, CO + O → CO₂, C + O₂ → CO₂
- *   수소와 산소는 섞기만 하면 그대로, 불씨가 닿아야 터진다. 수소가 타면 언제나 물이 남는다:
- *   2H₂ + O₂ → 2H₂O             수소만 있으면 공기 중 산소로 타서 약한 폭발
- *   H₂ + O / 2H₂ + O₂ → 물      산소가 섞여 있으면 큰 폭발
- *   2H₂O + 2Na → 2NaOH + H₂     물에 나트륨 → 지글 → 폭발 (생긴 수소도 바로 타서 물 2를 쓰고 1이 돌아옴)
- *   6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂ CO₂가 든 구름이 물웅덩이 위에 있으면 광합성 (빛·식물은 생략)
- *                               → 포도당 열매, 그 구름의 CO₂가 O₂로 바뀜
- *   C₆H₁₂O₆ + 6O₂ → 6CO₂ + 6H₂O 열매를 먹으면 세포 호흡으로 HP 회복
- *   Cl + Cl → Cl₂, N + N → N₂   Cl₂는 독가스 (안의 적이 피해), N₂는 타지 않음
- *   H₂ + Cl₂ → 2HCl             불을 붙이면 초록빛 폭발, 염화수소가 구름에 남음
- *   2Na + Cl₂ → 2NaCl           염소 구름 속 나트륨이 노랗게 타오르다 터지고 소금이 남음
- *   HCl + H₂O → H₃O⁺ + Cl⁻      염화수소 구름이 물 위에 있으면 염산 웅덩이 (위에 선 적이 피해)
- *   N₂가 든 구름이 닿아 있으면 그 수소 구름엔 불이 안 붙음 (연쇄도 멈춤)
- *   N₂ + 3H₂ → 2NH₃             질소가 섞인 수소 구름에 불: 터지지 않고 암모니아 (촉매·압력은 생략)
- *   NH₃ + HCl → NH₄Cl           같은 구름이거나 두 구름이 닿으면 흰 연기 (안의 적이 느려짐)
- *   N₂ + 2O₂ → 2NO₂             폭발에 휘말린 질소는 공기 중 산소와 이산화질소 (갈색 독가스)
+ * 시약병에는 실제로 있는 그대로 담겨 있다: 기체는 분자(H₂·O₂·Cl₂·N₂), 나트륨(Na)·탄소(C)는 고체 덩어리·가루.
+ * 첫 줄 H₂·O₂·Na·C, F로 바꾸는 둘째 줄 Cl₂·N₂. 화염방사기로 불씨를 붙인다.
+ * 공기에는 산소가 없다고 친다: 불은 던져 넣은 것끼리만 반응시키고, 반응식 계수만큼 다 모여야 반응한다.
+ *   2H₂ + O₂ → 2H₂O              불 → 큰 폭발, 물이 남음 (짝이 안 맞는 수소·산소는 그대로 남음)
+ *   H₂ + Cl₂ → 2HCl              불 → 초록빛 폭발, 염화수소가 구름에 남음
+ *   N₂ + 3H₂ → 2NH₃              질소가 섞인 수소 구름에 불: 터지지 않고 암모니아 (촉매·압력은 생략)
+ *                                질소 구름이 닿아 있거나 수소가 셋보다 모자라면 불이 안 붙음 (연쇄도 멈춤)
+ *   NH₃ + HCl → NH₄Cl            같은 구름이거나 두 구름이 닿으면 흰 연기 (안의 적이 느려짐)
+ *   N₂ + 2O₂ → 2NO₂              산소 둘이 섞인 질소 구름이 폭발에 휘말리면 이산화질소 (갈색 독가스)
+ *   C + O₂ → CO₂, 2C + O₂ → 2CO  산소 구름 아래 탄소 가루에 불: 산소가 넉넉하면 CO₂, 모자라면 CO
+ *   2Na + 2H₂O → 2NaOH + H₂      같은 자리 나트륨 둘이 물에 닿으면 지글 → 폭발, 생긴 수소는 구름으로 남음
+ *   2Na + Cl₂ → 2NaCl            염소 구름 속 나트륨 둘이 노랗게 타오르다 터지고 소금이 남음
+ *   HCl + H₂O → H₃O⁺ + Cl⁻       염화수소 구름이 물 위에 있으면 염산 웅덩이 (위에 선 적이 피해)
+ *   6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂  CO₂ 여섯이 든 구름이 물 6 이상인 웅덩이 위에 있으면 광합성 (빛·식물은 생략)
+ *                                → 포도당 열매, 그 구름의 CO₂가 O₂로 바뀜
+ *   C₆H₁₂O₆ + 6O₂ → 6CO₂ + 6H₂O  열매를 먹으면 세포 호흡으로 HP 회복
+ *   Cl₂·NO₂ 구름은 독가스 (안의 적이 피해)
  * 폭발은 근처 수소 구름에 옮겨붙는다 (연쇄). 플레이어는 자기 반응에 맞지 않는다.
- * 화면 위 화학식은 무언가와 합쳐질 때만 뜨고 잠시 뒤 사라진다 (땅의 구름·물·나트륨·열매 라벨은 남음).
+ * 화면 위 화학식은 무언가와 합쳐질 때만 뜨고 잠시 뒤 사라진다 (땅의 구름·물·나트륨·탄소·열매 라벨은 남음).
  */
 
-export type Reagent = 'H' | 'O' | 'Na' | 'C' | 'Cl' | 'N';
-export const REAGENTS: readonly Reagent[] = ['H', 'O', 'Na', 'C', 'Cl', 'N'];
+/** 병에 든 그대로: 기체는 분자, 나트륨·탄소는 고체 */
+export type Reagent = 'H2' | 'O2' | 'Na' | 'C' | 'Cl2' | 'N2';
+export const REAGENTS: readonly Reagent[] = ['H2', 'O2', 'Na', 'C', 'Cl2', 'N2'];
 /** 시약 줄 두 개 × 4칸: 1~4는 지금 줄의 칸을 던지고, F로 줄을 바꾼다. null = 빈 칸 (새 시약 자리) */
 export const BELTS: readonly (readonly (Reagent | null)[])[] = [
-  ['H', 'O', 'Na', 'C'],
-  ['Cl', 'N', null, null],
+  ['H2', 'O2', 'Na', 'C'],
+  ['Cl2', 'N2', null, null],
 ];
 const SLOT_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR'];
 
@@ -63,6 +63,16 @@ export const CHEM_COLOR = {
   op: E32.steel,
 } as const;
 
+/** 시약병·슬롯 색 (원소 관례색) */
+export const REAGENT_COLOR: Record<Reagent, number> = {
+  H2: CHEM_COLOR.H,
+  O2: CHEM_COLOR.O,
+  Na: CHEM_COLOR.Na,
+  C: CHEM_COLOR.C,
+  Cl2: CHEM_COLOR.Cl,
+  N2: CHEM_COLOR.N,
+};
+
 export interface ChemTerm {
   f: string;
   color: number;
@@ -77,18 +87,13 @@ export type ChemEvent =
   | { type: 'clear' };
 
 /** 구름 속 물질 */
-type Species = 'H' | 'H2' | 'O' | 'O2' | 'C' | 'CO' | 'CO2' | 'Cl' | 'Cl2' | 'N' | 'N2' | 'HCl' | 'NH3' | 'NH4Cl' | 'NO2';
+type Species = 'H2' | 'O2' | 'CO' | 'CO2' | 'Cl2' | 'N2' | 'HCl' | 'NH3' | 'NH4Cl' | 'NO2';
 const SPECIES_COLOR: Record<Species, number> = {
-  H: CHEM_COLOR.H,
   H2: CHEM_COLOR.H,
-  O: CHEM_COLOR.O,
   O2: CHEM_COLOR.O,
-  C: CHEM_COLOR.C,
   CO: CHEM_COLOR.CO,
   CO2: CHEM_COLOR.CO2,
-  Cl: CHEM_COLOR.Cl,
   Cl2: CHEM_COLOR.Cl,
-  N: CHEM_COLOR.N,
   N2: CHEM_COLOR.N,
   HCl: CHEM_COLOR.HCl,
   NH3: CHEM_COLOR.NH3,
@@ -108,7 +113,7 @@ function atomCount(terms: ChemTerm[]): Map<string, number> {
   return m;
 }
 
-/** 구름 안에서 저절로 일어나는 반응 (원자끼리 결합). 불이 필요한 반응은 ignite()에서 */
+/** 구름 안에서 저절로 일어나는 반응. 불이 필요한 반응은 ignite()·burnCarbon()에서 */
 interface CloudReaction {
   need: Partial<Record<Species, number>>;
   make: Species[];
@@ -118,24 +123,15 @@ interface CloudReaction {
 }
 
 const CLOUD_REACTIONS: CloudReaction[] = [
-  { need: { H: 2 }, make: ['H2'], lhs: [term('H', CHEM_COLOR.H), term('H', CHEM_COLOR.H)], rhs: [term('H2', CHEM_COLOR.H)], reveal: 0.35 },
-  { need: { O: 2 }, make: ['O2'], lhs: [term('O', CHEM_COLOR.O), term('O', CHEM_COLOR.O)], rhs: [term('O2', CHEM_COLOR.O)], reveal: 0.35 },
-  { need: { C: 1, O2: 1 }, make: ['CO2'], lhs: [term('C', CHEM_COLOR.C), term('O2', CHEM_COLOR.O)], rhs: [term('CO2', CHEM_COLOR.CO2)], reveal: 0.35 },
-  { need: { C: 1, O: 1 }, make: ['CO'], lhs: [term('C', CHEM_COLOR.C), term('O', CHEM_COLOR.O)], rhs: [term('CO', CHEM_COLOR.CO)], reveal: 0.35 },
-  { need: { CO: 1, O: 1 }, make: ['CO2'], lhs: [term('CO', CHEM_COLOR.CO), term('O', CHEM_COLOR.O)], rhs: [term('CO2', CHEM_COLOR.CO2)], reveal: 0.35 },
-  { need: { Cl: 2 }, make: ['Cl2'], lhs: [term('Cl', CHEM_COLOR.Cl), term('Cl', CHEM_COLOR.Cl)], rhs: [term('Cl2', CHEM_COLOR.Cl)], reveal: 0.35 },
-  { need: { N: 2 }, make: ['N2'], lhs: [term('N', CHEM_COLOR.N), term('N', CHEM_COLOR.N)], rhs: [term('N2', CHEM_COLOR.N)], reveal: 0.35 },
   { need: { NH3: 1, HCl: 1 }, make: ['NH4Cl'], lhs: [term('NH3', CHEM_COLOR.NH3), term('HCl', CHEM_COLOR.HCl)], rhs: [term('NH4Cl', CHEM_COLOR.NH4Cl)], reveal: 0.35 },
 ];
 
 const HCL_EQ = { lhs: [term('H2', CHEM_COLOR.H), term('Cl2', CHEM_COLOR.Cl)], rhs: [term('2HCl', CHEM_COLOR.HCl)] };
 const NO2_EQ = { lhs: [term('N2', CHEM_COLOR.N), term('2O2', CHEM_COLOR.O)], rhs: [term('2NO2', CHEM_COLOR.NO2)] };
 
-/** 수소가 공기 중 산소로 타는 반응식 */
-const AIR_BURN = {
-  lhs: [term('2H2', CHEM_COLOR.H), term('O2', CHEM_COLOR.O)],
-  rhs: [term('2H2O', CHEM_COLOR.water)],
-};
+const H2O_EQ = { lhs: [term('2H2', CHEM_COLOR.H), term('O2', CHEM_COLOR.O)], rhs: [term('2H2O', CHEM_COLOR.water)] };
+const CO2_EQ = { lhs: [term('C', CHEM_COLOR.C), term('O2', CHEM_COLOR.O)], rhs: [term('CO2', CHEM_COLOR.CO2)] };
+const CO_EQ = { lhs: [term('2C', CHEM_COLOR.C), term('O2', CHEM_COLOR.O)], rhs: [term('2CO', CHEM_COLOR.CO)] };
 
 export const THROW_CD = 0.25;
 const RANGE = 150;
@@ -156,21 +152,20 @@ const NA_REVEAL = 0.7;
 const IGNITE_FUSE = 0.3;
 /** 폭발이 옆 구름에 옮겨붙기까지 */
 const CHAIN_DELAY = 0.12;
-/** 나트륨 반응식 뒤에 "수소가 탔다" 반응식을 이어서 보여주기까지 */
+/** 앞 반응식 뒤에 이어지는 반응식을 보여주기까지 */
 const NA_BURN_EQ_DELAY = 0.6;
 /** 연달아 일어나는 반응 사이: 앞 반응 결과를 보여주는 시간 */
 const CHAIN_GAP = 0.75;
 /** 나트륨 반응의 폭발 (쿨롱 폭발 + 생긴 수소가 그 열로 탐) */
 const NA_BLAST_R = 32;
 const NA_DAMAGE = 25;
-/** 큰 폭발: 던진 산소와 반응한 수소 양에 비례 */
+/** 폭발: 탄 수소 분자 수에 비례 */
 const boomRadius = (h2: number) => Math.min(56, 26 + 5 * h2);
 const boomDamage = (h2: number) => 16 + 8 * h2;
-/** 약한 폭발: 공기 중 산소로 탄 수소 양에 비례 */
-const weakRadius = (h2: number) => Math.min(40, 22 + 4 * h2);
-const weakDamage = (h2: number) => 8 + 4 * h2;
 /** 광합성: 반응식이 나오고 열매가 열리기까지, 같은 구름의 다음 광합성까지 */
 const PHOTO_REVEAL = 0.6;
+/** 광합성 한 번에 쓰는 CO₂·물 (반응식 계수 그대로) */
+const PHOTO_N = 6;
 const PHOTO_CD = 1.2;
 /** 구름(바닥 기준 자리)이 물웅덩이 위로 쳐주는 여유 */
 const PHOTO_MARGIN = 6;
@@ -181,7 +176,7 @@ const BEAM_OUT = 0.5;
 /** 해는 왼쪽 위: 위로 갈수록 왼쪽으로 기울어짐 (높이 1px당) */
 const BEAM_TILT = 0.18;
 /** 열매를 먹으면 회복하는 HP, 열매가 남아 있는 시간 */
-const FRUIT_HEAL = 25;
+const FRUIT_HEAL = 60;
 const FRUIT_LIFE = 30;
 /** 독가스(Cl₂·NO₂)·염산·흰 연기가 적에게 효과를 주는 간격과 세기 */
 const GAS_TICK = 0.5;
@@ -195,8 +190,12 @@ const ACID_REVEAL = 0.5;
 const NA_CL_R = 26;
 const NA_CL_DAMAGE = 18;
 const SALT_LIFE = 12;
-/** 질소에 막혀 불이 안 붙었다는 표시를 다시 띄우기까지 (불줄기는 매 프레임 닿음) */
+/** 불이 안 붙었다는 표시를 다시 띄우기까지 (불줄기는 매 프레임 닿음) */
 const QUENCH_CD = 0.8;
+/** 나트륨·탄소를 이 거리 안에 또 던지면 같은 무더기에 쌓임 */
+const LUMP_MERGE = 16;
+/** 탄소가 타고 결과가 구름에 보이기까지 */
+const CARBON_REVEAL = 0.4;
 
 interface Flask {
   r: Reagent;
@@ -239,19 +238,21 @@ interface Cloud {
   /** 라벨 순서 번호: 늦게 끝나는 옛 연출이 새 상태를 덮어쓰지 않게 */
   seq: number;
   shownSeq: number;
-  /** 기체 효과(독·느려짐) 다음 틱까지, 불이 막혔다는 표시 다시 띄우기까지 */
+  /** 기체 효과(독·느려짐) 다음 틱까지 */
   tick: number;
-  quenchCd: number;
   puffs: Puff[];
   label: Phaser.GameObjects.Container | null;
   labelW: number;
 }
 
+/** 나트륨 덩어리·탄소 가루. 같은 자리에 또 던지면 쌓여 n개가 됨 */
 interface Lump {
+  kind: 'Na' | 'C';
+  n: number;
   x: number;
   y: number;
   t: number;
-  /** 물과 반응 중 (남은 시간), -1 = 아직 반응 안 함 */
+  /** 나트륨이 물·염소와 반응 중 (남은 시간), -1 = 아직 반응 안 함 */
   fizz: number;
   img: Phaser.GameObjects.Image;
   label: Phaser.GameObjects.Container;
@@ -339,14 +340,15 @@ const FRUIT = ['...L...', '..oLo..', '.oYYAo.', 'oYWYAAo', 'oYYAAro', '.oAAro.',
 
 const FLASK = ['..ccc..', '..oGo..', '..oGo..', '.oLLLo.', 'oLWLLLo', 'oLLLLlo', 'oLLLllo', '.olllo.', '..ooo..'];
 const LUMP = ['.oooo.', 'oWSSso', 'oSssdo', '.oooo.'];
+const PILE = ['...o...', '..oSo..', '.oSsdo.', 'osssddo'];
 const SALT = ['..ss..', '.sWWs.', 'sWWSSs', 'ssssss'];
 const LIQUID: Record<Reagent, [string, string]> = {
-  H: ['#c0cbdc', '#8b9bb4'],
-  O: ['#e43b44', '#a22633'],
+  H2: ['#c0cbdc', '#8b9bb4'],
+  O2: ['#e43b44', '#a22633'],
   Na: ['#b55088', '#68386c'],
   C: ['#5a6988', '#3a4466'],
-  Cl: ['#63c74d', '#3e8948'],
-  N: ['#0099db', '#124e89'],
+  Cl2: ['#63c74d', '#3e8948'],
+  N2: ['#0099db', '#124e89'],
 };
 
 const liquidColor = (r: Reagent): number => parseInt(LIQUID[r][0].slice(1), 16);
@@ -368,6 +370,10 @@ function makeTextures(s: Phaser.Scene): void {
     const pal = { o: '#3a4466', W: '#ffffff', S: '#c0cbdc', s: '#8b9bb4', d: '#5a6988' };
     s.textures.generate('na_lump', { data: LUMP, pixelWidth: 1, palette: pal as unknown as Pal });
   }
+  if (!s.textures.exists('c_pile')) {
+    const pal = { o: '#181425', S: '#5a6988', s: '#3a4466', d: '#262b44' };
+    s.textures.generate('c_pile', { data: PILE, pixelWidth: 1, palette: pal as unknown as Pal });
+  }
   if (!s.textures.exists('salt')) {
     const pal = { s: '#8b9bb4', W: '#ffffff', S: '#c0cbdc' };
     s.textures.generate('salt', { data: SALT, pixelWidth: 1, palette: pal as unknown as Pal });
@@ -376,7 +382,7 @@ function makeTextures(s: Phaser.Scene): void {
 
 const coef = (n: number) => (n > 1 ? String(n) : '');
 
-/** ['H2','H2','O'] → 2H₂ + O (처음 나온 순서대로, 같은 건 계수로 묶음) */
+/** ['H2','H2','O2'] → 2H₂ + O₂ (처음 나온 순서대로, 같은 건 계수로 묶음) */
 function speciesTerms(list: readonly Species[]): ChemTerm[] {
   const order: Species[] = [];
   const n = new Map<Species, number>();
@@ -411,6 +417,8 @@ export class ChemSystem {
   private lumps: Lump[] = [];
   private waters: Water[] = [];
   private salts: Salt[] = [];
+  /** 불이 안 붙었다는 표시를 다시 띄우기까지 */
+  private fizzleCd = 0;
   private fruits: Fruit[] = [];
   private beams: SunBeam[] = [];
   private readonly g: Phaser.GameObjects.Graphics;
@@ -461,6 +469,7 @@ export class ChemSystem {
 
   update(dt: number): void {
     this.throwCd = Math.max(0, this.throwCd - dt);
+    this.fizzleCd = Math.max(0, this.fizzleCd - dt);
     const p = this.s.player;
     if (!p.dead && !p.inputLocked && this.s.combatEnabled) {
       if (Phaser.Input.Keyboard.JustDown(this.beltKey)) {
@@ -540,9 +549,9 @@ export class ChemSystem {
   // ───────────────────────── 반응 ─────────────────────────
 
   private apply(r: Reagent, x: number, y: number): void {
-    if (r === 'Na') {
-      const lump = this.addLump(x, y);
-      if (this.isWater(x, y)) this.startSodium(lump);
+    // 나트륨·탄소는 고체라 바닥에 남음 (같은 자리면 쌓임)
+    if (r === 'Na' || r === 'C') {
+      this.addLump(r, x, y);
       return;
     }
     this.s.vfx.burst(x, y - 8, this.gasColors([r])[0], 8);
@@ -612,60 +621,51 @@ export class ChemSystem {
     return c.burning <= 0 && c.species.includes('H2');
   }
 
-  /** 불꽃 입자(공중, 손 높이)가 닿은 수소 구름에 불이 붙는다. 구름은 바닥에서 9px 떠 있음 */
+  /** 불꽃 입자(공중, 손 높이)가 닿은 수소 구름·탄소 가루에 불이 붙는다. 구름은 바닥에서 9px 떠 있음 */
   igniteAt(x: number, y: number): void {
     for (const c of this.clouds) {
-      if (this.flammable(c) && Math.hypot(x - c.x, y - (c.y - 9)) <= CLOUD_R) this.ignite(c);
+      if (this.flammable(c) && Math.hypot(x - c.x, y - (c.y - 9)) <= CLOUD_R) this.ignite(c, true);
+    }
+    for (const l of [...this.lumps]) {
+      if (l.kind === 'C' && Math.hypot(x - l.x, y - (l.y - 9)) <= CLOUD_R) this.burnCarbon(l, true);
     }
   }
 
-  /** 불이 붙음: 잠깐 불길이 번진 뒤, 던져 넣은 산소와 섞인 수소는 쾅, 남은 수소는 공기로 타서 불덩이. 어느 쪽이든 물이 남음 */
-  private ignite(c: Cloud): void {
+  /**
+   * 불이 붙음 (공기에 산소가 없으니 던져 넣은 기체끼리만): 잠깐 불길이 번진 뒤
+   * 수소 + 염소(1:1)는 초록 폭발 → 염화수소, 수소 + 산소(2:1)는 큰 폭발 → 물. 짝이 안 맞는 건 그대로 남는다.
+   * direct = 불줄기가 직접 닿음 (연쇄로 온 불은 안 붙어도 화학식을 안 띄움)
+   */
+  private ignite(c: Cloud, direct = false): void {
     // 연쇄 점화는 0.12초 뒤에 오므로 그사이 시간이 다 돼 사라진 구름은 건너뜀
     if (!this.flammable(c) || !this.clouds.includes(c)) return;
     const s = this.s;
     const sp = c.species;
-    // 같은 구름의 질소는 수소와 암모니아가 되고, 옆에 닿은 질소 구름은 불길을 덮어 막는다
-    if (sp.includes('N2')) return this.makeAmmonia(c);
-    if (this.clouds.some((o) => o !== c && o.species.includes('N2') && Phaser.Math.Distance.Between(o.x, o.y, c.x, c.y) <= TOUCH)) return this.quench(c);
+    // 옆에 닿은 질소 구름은 불길을 덮어 막는다
+    if (this.clouds.some((o) => o !== c && o.species.includes('N2') && Phaser.Math.Distance.Between(o.x, o.y, c.x, c.y) <= TOUCH)) {
+      return this.fizzle(c.x, c.y, direct ? [...speciesTerms(sp), term('N2', CHEM_COLOR.N)] : null);
+    }
+    // 같은 구름의 질소는 수소 셋과 암모니아가 되고, 수소가 모자라면 질소에 묻혀 안 탐
+    if (sp.includes('N2')) {
+      if (count(sp, 'H2') >= 3) return this.makeAmmonia(c);
+      return this.fizzle(c.x, c.y, direct ? speciesTerms(sp) : null);
+    }
     let hcl = 0;
     while (count(sp, 'H2') >= 1 && count(sp, 'Cl2') >= 1) {
       take(sp, 'H2', 1);
       take(sp, 'Cl2', 1);
       hcl += 1;
     }
-    let mixed = 0;
-    let usedO2 = false;
-    let usedO = false;
+    let water = 0;
     while (count(sp, 'H2') >= 2 && count(sp, 'O2') >= 1) {
       take(sp, 'H2', 2);
       take(sp, 'O2', 1);
-      mixed += 2;
-      usedO2 = true;
+      water += 2;
     }
-    while (count(sp, 'H2') >= 1 && count(sp, 'O') >= 1) {
-      take(sp, 'H2', 1);
-      take(sp, 'O', 1);
-      mixed += 1;
-      usedO = true;
-    }
-    // 수소 분자가 하나만 남아도 산소 분자와 섞여 있으면 같이 터짐 (계수는 표기용)
-    if (count(sp, 'H2') === 1 && count(sp, 'O2') >= 1) {
-      take(sp, 'H2', 1);
-      take(sp, 'O2', 1);
-      mixed += 1;
-      usedO2 = true;
-    }
-    const air = count(sp, 'H2');
-    take(sp, 'H2', air);
-    const eq = usedO2
-      ? { lhs: [term('2H2', CHEM_COLOR.H), term('O2', CHEM_COLOR.O)], rhs: [term('2H2O', CHEM_COLOR.water)] }
-      : usedO
-        ? { lhs: [term('H2', CHEM_COLOR.H), term('O', CHEM_COLOR.O)], rhs: [term('H2O', CHEM_COLOR.water)] }
-        : AIR_BURN;
-    // 염소와 탄 수소가 있으면 그 반응식이 먼저, 산소·공기로 탄 수소는 이어서
-    this.emit({ type: 'equation', ...(hcl > 0 ? HCL_EQ : eq), revealAt: IGNITE_FUSE });
-    if (hcl > 0 && mixed + air > 0) this.showAfter(IGNITE_FUSE + NA_BURN_EQ_DELAY, eq);
+    if (hcl + water === 0) return this.fizzle(c.x, c.y, direct ? speciesTerms(sp) : null);
+    // 염소와 탄 수소가 있으면 그 반응식이 먼저, 산소와 탄 수소는 이어서
+    this.emit({ type: 'equation', ...(hcl > 0 ? HCL_EQ : H2O_EQ), revealAt: IGNITE_FUSE });
+    if (hcl > 0 && water > 0) this.showAfter(IGNITE_FUSE + NA_BURN_EQ_DELAY, H2O_EQ);
     const after = [...sp];
     const seq = ++c.seq;
     c.burning = IGNITE_FUSE;
@@ -675,32 +675,24 @@ export class ChemSystem {
       c.burning = 0;
       this.showSpecies(c, after, seq);
       const { x, y } = c;
-      if (mixed > 0) {
-        // 산소가 섞여 있으면 큰 폭발 (남는 수소가 있으면 공기로 같이 타서 조금 더 커짐)
-        const r = Math.min(64, boomRadius(mixed) + 3 * air);
-        this.blast(x, y - 4, r, boomDamage(mixed) + 4 * air, true, E32.yellow, E32.orange, 'kaboom', r > 44 ? 'boom_l' : 'boom_s');
-        if (air > 0 && hcl === 0) this.showAfter(NA_BURN_EQ_DELAY, AIR_BURN);
-      } else if (hcl > 0) {
-        // 수소·염소 폭발: 초록빛 (염소 색)
-        const r = Math.min(64, boomRadius(hcl) + 3 * air);
-        this.blast(x, y - 4, r, boomDamage(hcl) + 4 * air, true, E32.lime, E32.yellow, 'kaboom', 'boom_w', E32.lime);
-      } else {
-        // 산소 없이 공기 중 산소로 타면 약한 폭발 (수소 불꽃 색인 옅은 파랑)
-        this.blast(x, y - 4, weakRadius(air), weakDamage(air), false, E32.cyan, E32.white, 'boom', 'boom_w');
-      }
-      // 염화수소는 그 구름에 남고 (2HCl), 산소·공기로 탄 수소는 물이 된다
+      // 탄 수소 양에 비례. 산소가 섞였으면 노란 큰 폭발, 염소하고만 탔으면 초록빛 (염소 색)
+      const r = boomRadius(hcl + water);
+      const dmg = boomDamage(hcl + water);
+      if (water > 0) this.blast(x, y - 4, r, dmg, true, E32.yellow, E32.orange, 'kaboom', r > 44 ? 'boom_l' : 'boom_s');
+      else this.blast(x, y - 4, r, dmg, true, E32.lime, E32.yellow, 'kaboom', 'boom_w', E32.lime);
+      // 염화수소는 그 구름에 남고 (2HCl), 산소와 탄 수소는 물이 된다
       for (let i = 0; i < hcl * 2; i++) this.addToCloud(c, 'HCl', true);
-      if (mixed + air > 0) s.scheduler.after(0.15, () => this.makeWater(x, y, mixed + air));
+      if (water > 0) s.scheduler.after(0.15, () => this.makeWater(x, y, water));
     });
   }
 
-  /** 질소가 섞인 수소 구름에 불: 터지지 않고 암모니아 (게임이라 촉매·압력 생략, 계수는 표기용) */
+  /** 질소 + 수소 셋에 불: 터지지 않고 암모니아 (게임이라 촉매·압력 생략) */
   private makeAmmonia(c: Cloud): void {
     const s = this.s;
     let made = 0;
-    while (c.species.includes('N2') && c.species.includes('H2')) {
+    while (count(c.species, 'N2') >= 1 && count(c.species, 'H2') >= 3) {
       take(c.species, 'N2', 1);
-      take(c.species, 'H2', Math.min(3, count(c.species, 'H2')));
+      take(c.species, 'H2', 3);
       made += 2;
     }
     this.emit({ type: 'equation', lhs: [term('N2', CHEM_COLOR.N), term('3H2', CHEM_COLOR.H)], rhs: [term('2NH3', CHEM_COLOR.NH3)], revealAt: AMMONIA_REVEAL });
@@ -714,15 +706,52 @@ export class ChemSystem {
     });
   }
 
-  /** 옆 질소 구름이 불길을 덮음: 연기만 나고 안 붙음 (불줄기는 매 프레임 닿으니 표시는 가끔) */
-  private quench(c: Cloud): void {
-    if (c.quenchCd > 0) return;
-    c.quenchCd = QUENCH_CD;
+  /** 불이 안 붙음 (짝이 될 기체가 없거나 질소에 덮임): 연기만 남. 불줄기는 매 프레임 닿으니 표시는 가끔, 화학식은 섞인 게 둘 이상일 때만 */
+  private fizzle(x: number, y: number, terms: ChemTerm[] | null): void {
+    if (this.fizzleCd > 0) return;
+    this.fizzleCd = QUENCH_CD;
     const s = this.s;
-    this.emit({ type: 'mix', terms: [...speciesTerms(c.species), term('N2', CHEM_COLOR.N)] });
-    s.vfx.spark(c.x, c.y - 9, E32.steel, 8, 30, 40);
-    s.vfx.ring(c.x, c.y - 9, 4, 16, CHEM_COLOR.N, 0.3, 1);
+    if (terms && terms.length > 1) this.emit({ type: 'mix', terms });
+    s.vfx.spark(x, y - 9, E32.steel, 8, 30, 40);
+    s.vfx.ring(x, y - 9, 4, 16, E32.steel, 0.3, 1);
     playSfx('sizzle');
+  }
+
+  /**
+   * 산소 구름 아래 탄소 가루에 불 (공기에 산소가 없으니 구름의 O₂로만 탐):
+   * 산소가 넉넉하면 C + O₂ → CO₂, 모자라면 2C + O₂ → 2CO. 생긴 기체는 그 구름에 남음
+   */
+  private burnCarbon(l: Lump, direct: boolean): void {
+    const s = this.s;
+    const c = this.clouds.find((o) => o.burning <= 0 && o.species.includes('O2') && Phaser.Math.Distance.Between(o.x, o.y, l.x, l.y) <= CLOUD_R + 4);
+    if (!c) {
+      if (direct) this.fizzle(l.x, l.y, null);
+      return;
+    }
+    // 탄소 n, 산소 분자 m → 원자 수가 맞게 CO₂ a개 + CO b개 (b는 늘 짝수)
+    const n = l.n;
+    const m = count(c.species, 'O2');
+    const a = m >= n ? n : Math.max(0, 2 * m - n);
+    const b = Math.min(n, 2 * m) - a;
+    take(c.species, 'O2', a + b / 2);
+    for (let i = 0; i < a; i++) c.species.push('CO2');
+    for (let i = 0; i < b; i++) c.species.push('CO');
+    l.n -= a + b;
+    if (l.n <= 0) this.removeLump(l);
+    else this.refreshLumpLabel(l);
+    const after = [...c.species];
+    const seq = ++c.seq;
+    c.t = CLOUD_LIFE;
+    c.busyUntil = Math.max(c.busyUntil, s.gameTime + CARBON_REVEAL + 0.1);
+    this.emit({ type: 'equation', ...(a > 0 ? CO2_EQ : CO_EQ), revealAt: CARBON_REVEAL });
+    if (a > 0 && b > 0) this.showAfter(CARBON_REVEAL + NA_BURN_EQ_DELAY, CO_EQ);
+    playSfx('ignite');
+    s.vfx.spark(l.x, l.y - 3, E32.orange, 14, 40, 60);
+    s.vfx.glow(l.x, l.y - 4, 18, E32.orange, 0.4);
+    s.scheduler.after(CARBON_REVEAL, () => {
+      this.showSpecies(c, after, seq);
+      s.vfx.ring(c.x, c.y - 9, 4, 20, E32.steel, 0.3, 1);
+    });
   }
 
   /** 조금 뒤에 이어서 보여줄 반응식 (그 사이 다른 반응이 떴으면 생략) */
@@ -753,16 +782,19 @@ export class ChemSystem {
       if (this.flammable(c) && Phaser.Math.Distance.Between(c.x, c.y, x, y) <= r + CLOUD_R) {
         s.scheduler.after(CHAIN_DELAY, () => this.ignite(c));
       }
-      // 폭발에 휘말린 질소는 공기 중 산소와 이산화질소 (수소 구름에 닿아 불을 막고 있는 질소는 그대로)
+      // 산소 둘이 섞인 질소 구름이 폭발에 휘말리면 이산화질소 (수소 구름에 닿아 불을 막고 있는 질소는 그대로)
       const guarding = this.clouds.some((o) => this.flammable(o) && Phaser.Math.Distance.Between(o.x, o.y, c.x, c.y) <= TOUCH);
-      if (c.burning <= 0 && !guarding && c.species.includes('N2') && Phaser.Math.Distance.Between(c.x, c.y, x, y) <= r + CLOUD_R) this.makeNO2(c);
+      if (c.burning <= 0 && !guarding && c.species.includes('N2') && count(c.species, 'O2') >= 2 && Phaser.Math.Distance.Between(c.x, c.y, x, y) <= r + CLOUD_R) this.makeNO2(c);
     }
+    // 폭발 열은 산소 구름 아래 탄소 가루에도 불을 붙임
+    for (const l of [...this.lumps]) if (l.kind === 'C' && Phaser.Math.Distance.Between(l.x, l.y, x, y) <= r) this.burnCarbon(l, false);
   }
 
   private makeNO2(c: Cloud): void {
     const s = this.s;
-    const n = count(c.species, 'N2');
+    const n = Math.min(count(c.species, 'N2'), Math.floor(count(c.species, 'O2') / 2));
     take(c.species, 'N2', n);
+    take(c.species, 'O2', n * 2);
     for (let i = 0; i < n * 2; i++) c.species.push('NO2');
     const after = [...c.species];
     const seq = ++c.seq;
@@ -787,8 +819,9 @@ export class ChemSystem {
     playSfx('splash');
   }
 
-  /** 물 위의 나트륨: 지글거리며 튀어 다니다가 폭발 */
+  /** 같은 자리 나트륨 둘이 물에 닿음: 지글거리며 튀어 다니다가 폭발 */
   private startSodium(lump: Lump): void {
+    this.splitLump(lump);
     lump.fizz = NA_REVEAL;
     this.emit({
       type: 'equation',
@@ -800,24 +833,32 @@ export class ChemSystem {
     playSfx('fizz');
   }
 
-  /** 나트륨이 물과 반응해 폭발. 그 열로 막 생긴 수소도 바로 탄다 (수소는 안 남음) */
+  /** 반응에는 나트륨 둘만 씀: 더 쌓여 있으면 나머지는 그 자리에 덩어리로 남김 */
+  private splitLump(l: Lump): void {
+    if (l.n > 2) this.newLump(l.kind, l.x, l.y, l.n - 2);
+    l.n = 2;
+  }
+
+  /** 나트륨 둘이 물과 반응해 폭발 (쿨롱 폭발). 생긴 수소는 공기에 산소가 없으니 타지 않고 구름으로 남음 */
   private explodeSodium(lump: Lump): void {
     const s = this.s;
     const { x, y } = lump;
     this.removeLump(lump);
     // 반응식대로 물은 2H₂O만 쓴다 (나트륨이 떨어진 자리부터)
     const w = this.waterAt(x, y, 4);
-    const used = w ? this.consumeWater(w, x, y, 2) : 0;
+    if (w) this.consumeWater(w, x, y, 2);
     s.vfx.spark(x, y, E32.cyan, 18, 150, 110);
     this.blast(x, y, NA_BLAST_R, NA_DAMAGE, true, E32.amber, E32.yellow, 'kaboom', 'boom_na');
-    // 생긴 수소(H₂)가 타서 물 1이 돌아옴 (물 2개를 썼을 때)
-    const back = Math.floor(used / 2);
-    if (back > 0) s.scheduler.after(0.2, () => this.makeWater(x, y, back));
-    this.showAfter(NA_BURN_EQ_DELAY, AIR_BURN);
+    s.scheduler.after(0.2, () => {
+      const c = this.cloudAt(x, y);
+      if (c) this.addToCloud(c, 'H2', true);
+      else this.addCloud(x, y, ['H2']);
+    });
   }
 
-  /** 염소 구름 속 나트륨: 노랗게 타오름 (2Na + Cl₂ → 2NaCl) */
+  /** 염소 구름 속 나트륨 둘: 노랗게 타오름 (2Na + Cl₂ → 2NaCl) */
   private startSalt(lump: Lump, c: Cloud): void {
+    this.splitLump(lump);
     take(c.species, 'Cl2', 1);
     this.showSpecies(c, [...c.species], ++c.seq);
     c.busyUntil = Math.max(c.busyUntil, this.s.gameTime + NA_REVEAL + 0.1);
@@ -893,20 +934,20 @@ export class ChemSystem {
 
   /**
    * CO₂가 든 구름이 물웅덩이 위에 있으면 광합성 (빛·식물은 게임이라 생략):
-   * 그 구름의 CO₂ 하나 + 물 1 → 포도당 열매 하나, CO₂는 O₂가 되어 같은 구름에 남음
+   * 그 구름의 CO₂ 여섯 + 물 6 → 포도당 열매 하나, CO₂는 O₂가 되어 같은 구름에 남음 (반응식 계수 그대로)
    */
   private updatePhotosynthesis(dt: number): void {
     const s = this.s;
     const now = s.gameTime;
     for (const c of this.clouds) {
       c.photoCd = Math.max(0, c.photoCd - dt);
-      // 앞 반응 연출(예: CO + O → CO₂)이 끝난 뒤에
-      if (c.photoCd > 0 || c.burning > 0 || now < c.busyUntil || !c.species.includes('CO2')) continue;
+      // 앞 반응 연출(예: 탄소가 타서 CO₂가 됨)이 끝난 뒤에
+      if (c.photoCd > 0 || c.burning > 0 || now < c.busyUntil || count(c.species, 'CO2') < PHOTO_N) continue;
       const w = this.waterAt(c.x, c.y, PHOTO_MARGIN);
-      if (!w) continue;
+      if (!w || waterAmount(w) < PHOTO_N) continue;
       // 라벨은 열매가 열릴 때 CO₂ → O₂로 바뀜
-      take(c.species, 'CO2', 1);
-      this.consumeWater(w, c.x, c.y, 1);
+      take(c.species, 'CO2', PHOTO_N);
+      this.consumeWater(w, c.x, c.y, PHOTO_N);
       c.photoCd = PHOTO_CD;
       c.t = CLOUD_LIFE;
       c.busyUntil = Math.max(c.busyUntil, now + PHOTO_REVEAL + 0.1);
@@ -923,8 +964,8 @@ export class ChemSystem {
         const side = Math.random() < 0.5 ? -1 : 1;
         this.addFruit(c.x + side * (16 + Math.random() * 6), c.y + 2 + Math.random() * 4);
         // 나온 산소는 그 구름에 남음 (수소와 섞어 불을 붙이면 큰 폭발)
-        if (this.clouds.includes(c) && c.burning <= 0) this.addToCloud(c, 'O2', true);
-        else this.addCloud(c.x, c.y, ['O2']);
+        if (this.clouds.includes(c) && c.burning <= 0) for (let i = 0; i < PHOTO_N; i++) this.addToCloud(c, 'O2', true);
+        else this.addCloud(c.x, c.y, Array<Species>(PHOTO_N).fill('O2'));
         s.vfx.ring(c.x, c.y - 9, 4, 24, E32.lime, 0.35, 2);
         s.vfx.spark(c.x, c.y - 10, E32.lime, 14, 50, 60);
         s.lighting.flash(c.x, c.y - 9, 120, E32.lime, 0.5);
@@ -999,7 +1040,6 @@ export class ChemSystem {
       seq: 0,
       shownSeq: 0,
       tick: GAS_TICK,
-      quenchCd: 0,
       puffs,
       label: null,
       labelW: 0,
@@ -1034,23 +1074,14 @@ export class ChemSystem {
     c.labelW = l.w;
   }
 
-  private hasH(list: readonly Species[]): boolean {
-    return list.includes('H') || list.includes('H2');
-  }
-
-  private hasO(list: readonly Species[]): boolean {
-    return list.includes('O') || list.includes('O2');
-  }
-
-  /** 구름에 든 기체별 색: 수소 은색, 산소 빨강, 탄소 짙은 회색, 일산화·이산화탄소 회색, 염소 연두, 질소 파랑 (나머지는 CHEM_COLOR) */
+  /** 구름에 든 기체별 색: 수소·암모니아 은색, 산소 빨강, 일산화·이산화탄소 회색, 염소 연두, 질소 파랑, 염화수소 은색+연두 (나머지는 CHEM_COLOR) */
   private gasColors(list: readonly Species[]): number[] {
     const cols: number[] = [];
-    if (this.hasH(list) || list.includes('NH3')) cols.push(E32.silver);
-    if (this.hasO(list)) cols.push(E32.red);
-    if (list.includes('C')) cols.push(E32.slate);
+    if (list.includes('H2') || list.includes('NH3')) cols.push(E32.silver);
+    if (list.includes('O2')) cols.push(E32.red);
     if (list.includes('CO') || list.includes('CO2')) cols.push(E32.steel);
-    if (list.includes('Cl') || list.includes('Cl2')) cols.push(E32.lime);
-    if (list.includes('N') || list.includes('N2')) cols.push(E32.blue);
+    if (list.includes('Cl2')) cols.push(E32.lime);
+    if (list.includes('N2')) cols.push(E32.blue);
     // 염화수소는 색 없는 기체: 수소 은색 + 염소 연두를 섞어 염소 구름보다 옅게
     if (list.includes('HCl')) cols.push(E32.silver, E32.lime);
     for (const sp of ['NH4Cl', 'NO2'] as const) if (list.includes(sp)) cols.push(CHEM_COLOR[sp]);
@@ -1069,7 +1100,6 @@ export class ChemSystem {
       }
       if (!c.shown.length) continue;
       c.t -= dt;
-      c.quenchCd = Math.max(0, c.quenchCd - dt);
       c.tick -= dt;
       if (c.tick <= 0) {
         c.tick = GAS_TICK;
@@ -1318,13 +1348,29 @@ export class ChemSystem {
     }
   }
 
-  private addLump(x: number, y: number): Lump {
-    const img = this.s.add.image(Math.round(x), Math.round(y), 'na_lump').setOrigin(0.5, 1).setDepth(DEPTH.actor + y);
-    const l = this.makeLabel([term('Na', CHEM_COLOR.Na)]);
-    l.c.setPosition(Math.round(x - l.w / 2), Math.round(y - 18));
-    const lump: Lump = { x, y, t: LUMP_LIFE, fizz: -1, img, label: l.c, labelW: l.w, ph: Math.random() * 10, salt: false };
-    this.lumps.push(lump);
-    return lump;
+  /** 같은 자리(LUMP_MERGE 안)에 또 던지면 쌓여서 개수가 늘어남 (2Na, 3C) */
+  private addLump(kind: 'Na' | 'C', x: number, y: number): void {
+    const near = this.lumps.find((l) => l.kind === kind && l.fizz < 0 && Phaser.Math.Distance.Between(l.x, l.y, x, y) <= LUMP_MERGE);
+    if (!near) {
+      this.newLump(kind, x, y, 1);
+      return;
+    }
+    near.n += 1;
+    near.t = LUMP_LIFE;
+    this.refreshLumpLabel(near);
+  }
+
+  private newLump(kind: 'Na' | 'C', x: number, y: number, n: number): void {
+    const img = this.s.add.image(Math.round(x), Math.round(y), kind === 'Na' ? 'na_lump' : 'c_pile').setOrigin(0.5, 1).setDepth(DEPTH.actor + y);
+    const l = this.makeLabel([term(`${coef(n)}${kind}`, CHEM_COLOR[kind])]);
+    this.lumps.push({ kind, n, x, y, t: LUMP_LIFE, fizz: -1, img, label: l.c, labelW: l.w, ph: Math.random() * 10, salt: false });
+  }
+
+  private refreshLumpLabel(lump: Lump): void {
+    lump.label.destroy();
+    const l = this.makeLabel([term(`${coef(lump.n)}${lump.kind}`, CHEM_COLOR[lump.kind])]);
+    lump.label = l.c;
+    lump.labelW = l.w;
   }
 
   private removeLump(l: Lump): void {
@@ -1337,7 +1383,7 @@ export class ChemSystem {
     for (const l of [...this.lumps]) {
       if (l.fizz >= 0) {
         l.fizz -= dt;
-        // 물 위에서 지글거리며 이리저리 튐
+        // 지글거리며 이리저리 튐
         const jx = Math.round((Math.random() - 0.5) * 3);
         l.img.setPosition(Math.round(l.x) + jx, Math.round(l.y) - (Math.random() < 0.3 ? 1 : 0));
         l.label.setAlpha(0);
@@ -1351,10 +1397,19 @@ export class ChemSystem {
       }
       l.t -= dt;
       l.label.setAlpha(Math.min(1, l.t / 1.5));
-      const cl = this.clouds.find((c) => c.burning <= 0 && c.shown.includes('Cl2') && c.species.includes('Cl2') && Phaser.Math.Distance.Between(c.x, c.y, l.x, l.y) <= CLOUD_R + 4);
-      if (this.isWater(l.x, l.y)) this.startSodium(l);
-      else if (cl) this.startSalt(l, cl);
-      else if (l.t <= 0) this.removeLump(l);
+      // 나트륨은 둘이 모여야 반응 (2Na). 하나면 물 위·염소 속에서도 기다림
+      if (l.kind === 'Na' && l.n >= 2) {
+        const cl = this.clouds.find((c) => c.burning <= 0 && c.shown.includes('Cl2') && c.species.includes('Cl2') && Phaser.Math.Distance.Between(c.x, c.y, l.x, l.y) <= CLOUD_R + 4);
+        if (this.isWater(l.x, l.y)) {
+          this.startSodium(l);
+          continue;
+        }
+        if (cl) {
+          this.startSalt(l, cl);
+          continue;
+        }
+      }
+      if (l.t <= 0) this.removeLump(l);
     }
   }
 
