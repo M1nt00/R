@@ -6,11 +6,13 @@ import { playSfx } from '../audio/sfx';
 import breathUrl from '../../art/fx/breath.png?url';
 
 /**
- * 화염방사기 → 드래곤 브레스: 좌클릭 한 번에 불줄기를 한 번 뿜고, 쿨타임 동안 다시 못 쏜다. 불씨 역할만 하고 직접 피해는 없다.
+ * 화염방사기 → 드래곤 브레스: 좌클릭 한 번에 불줄기를 한 번 뿜고, 쿨타임 동안 다시 못 쏜다. 불씨 역할 + 닿은 적에게 피해 1 (한 번 뿜을 때 적마다 한 번).
  * 그림은 art/fx/breath.aseprite (오른쪽을 보는 88×28 10프레임) → art/fx/breath.png 가로 시트.
  * 판정은 눈에 보이는 그대로: 그 프레임에서 뜨거운 색(흰·노랑·호박·주황) 픽셀이 닿은 수소 구름에 불이 붙고, 불줄기는 벽에서 잘린다.
  */
 export const BREATH_CD = 1.5;
+/** 불 자체 피해 (2026-11-10 사용자가 정함, 전엔 0) */
+const BREATH_DAMAGE = 1;
 const KEY = 'breath';
 const FW = 88;
 const FH = 28;
@@ -20,8 +22,10 @@ const NOZZLE_Y = 16;
 const DURS = [0.04, 0.05, 0.05, 0.06, 0.06, 0.07, 0.08, 0.1, 0.1, 0.1];
 const ENDS = DURS.map((_, i) => DURS.slice(0, i + 1).reduce((a, b) => a + b, 0));
 const TOTAL = ENDS[ENDS.length - 1];
-/** 1~5프레임은 노즐에 붙어 있는 분출 → 그동안은 손을 따라가고 시전 자세 유지. 그 뒤로는 떨어져 나가 그 자리에서 식는다 */
+/** 1~5프레임은 노즐에 붙어 있는 분출 → 그동안은 손을 따라간다. 그 뒤로는 떨어져 나가 그 자리에서 식는다 */
 const ATTACHED = ENDS[4];
+/** 불이 나오는 높이 (발밑에서 위로) */
+const NOZZLE_H = 12;
 /** 마지막 이만큼은 서서히 투명하게 */
 const FADE = 0.2;
 
@@ -83,6 +87,10 @@ export class Flamethrower {
   /** 벽에 막히기 전까지 뻗을 수 있는 거리 */
   private reach = FW;
   private wasDown = false;
+  /** 이번에 뿜은 불이 가진 산소 (점화에 쓴 O₂ 1개). 처음 불붙은 구름이 씀 */
+  private breath = { o2: 0 };
+  /** 이번 불에 이미 맞은 적 (한 번 뿜을 때 한 번만 피해) */
+  private readonly burned = new Set<object>();
   private readonly frames: FrameInfo[];
   private readonly sprite: Phaser.GameObjects.Sprite | null;
 
@@ -100,7 +108,7 @@ export class Flamethrower {
   private nozzle() {
     const p = this.s.player;
     const a = p.aimAngle;
-    return { x: p.x + Math.cos(a) * 9, y: p.y - 9 + Math.sin(a) * 6 };
+    return { x: p.x + Math.cos(a) * 9, y: p.y - NOZZLE_H + Math.sin(a) * 6 };
   }
 
   private frameAt(t: number): number {
@@ -121,7 +129,7 @@ export class Flamethrower {
     const c = Math.cos(this.angle);
     const sn = Math.sin(this.angle);
     for (let d = 2; d < FW; d += 2) {
-      if (this.s.terrain.isWallAt(this.ox + c * d, this.oy + sn * d + 9)) return d;
+      if (this.s.terrain.isWallAt(this.ox + c * d, this.oy + sn * d + NOZZLE_H)) return d;
     }
     return FW;
   }
@@ -135,7 +143,8 @@ export class Flamethrower {
     this.oy = n.y;
     this.t = 0;
     this.cd = BREATH_CD;
-    p.firePose();
+    this.breath = { o2: 1 };
+    this.burned.clear();
     playSfx('breath');
   }
 
@@ -146,7 +155,14 @@ export class Flamethrower {
     const down = s.input.activePointer.leftButtonDown();
     const pressed = down && !this.wasDown;
     this.wasDown = down;
-    if (pressed && this.cd <= 0 && !p.dead && !p.inputLocked && !p.rolling && s.combatEnabled) this.fire();
+    if (pressed && this.cd <= 0 && !p.dead && !p.inputLocked && s.combatEnabled) {
+      // 점화 한 번 = 산소 하나 (개수 없는 실험실은 그냥 뿜음)
+      if (s.chem.spend('O2')) this.fire();
+      else {
+        playSfx('deny');
+        s.vfx.floatText(p.x, p.y - 26, '산소가 없어요', E32.red, 8, 0.7, 10);
+      }
+    }
 
     if (!this.active) return;
     this.t += dt;
@@ -154,12 +170,11 @@ export class Flamethrower {
       this.sprite?.setVisible(false);
       return;
     }
-    // 분출 중엔 손을 따라감 (방향은 쏜 순간 그대로)
+    // 분출 중엔 손을 따라감 (방향은 쏜 순간 그대로). 주인공은 걷기·대기 동작을 그대로 이어감
     if (this.t < ATTACHED && !p.dead) {
       const n = this.nozzle();
       this.ox = n.x;
       this.oy = n.y;
-      if (!p.rolling) p.firePose();
     }
     this.reach = this.measureReach();
 
@@ -169,12 +184,18 @@ export class Flamethrower {
     for (const h of fr.hot) {
       if (h.x > this.reach) continue;
       const w = this.toWorld(h.x, h.y);
-      s.chem.igniteAt(w.x, w.y);
+      s.chem.igniteAt(w.x, w.y, this.breath);
+      // 불이 닿은 적 (불은 손 높이라 바닥 자리는 NOZZLE_H 아래)
+      for (const a of s.combat.inCircle(w.x, w.y + NOZZLE_H, 2, 'enemy')) {
+        if (this.burned.has(a)) continue;
+        this.burned.add(a);
+        s.combat.hit(a, { damage: BREATH_DAMAGE, color: E32.orange });
+      }
     }
     // 벽에 부딪힌 불길은 튀어 흩어짐
     if (fr.heat > 0 && fr.reach > this.reach && Math.random() < 0.6) {
       const w = this.toWorld(this.reach, (Math.random() - 0.5) * 8);
-      s.vfx.spark(w.x, w.y + 9, Math.random() < 0.5 ? E32.orange : E32.amber, 1, 40, 30);
+      s.vfx.spark(w.x, w.y + NOZZLE_H, Math.random() < 0.5 ? E32.orange : E32.amber, 1, 40, 30);
     }
   }
 

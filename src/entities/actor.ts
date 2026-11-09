@@ -259,8 +259,10 @@ export abstract class Actor {
     const y = Math.round(this.phys.y);
     const depth = DEPTH.actor + y;
     const vy = y - Math.round(this.hop);
-    this.bodyImg.setPosition(x, vy).setScale(sx, sy).setFlipX(this.facing < 0).setDepth(depth);
-    this.elemImg.setPosition(x, vy).setScale(sx, sy).setFlipX(this.facing < 0).setDepth(depth + 0.01);
+    // 앞·뒤 모습은 뒤집지 않는다 (헬멧 반사광·가슴 불빛 위치 유지). 왼쪽 그림은 따로 있음
+    const flip = this.facing < 0 && !/_(left|down|up)$/.test(this.animName);
+    this.bodyImg.setPosition(x, vy).setScale(sx, sy).setFlipX(flip).setDepth(depth);
+    this.elemImg.setPosition(x, vy).setScale(sx, sy).setFlipX(flip).setDepth(depth + 0.01);
     // 빛이 왼쪽 위 → 그림자는 오른쪽 아래로 살짝
     this.shadow.setPosition(x + 1, y + 1).setScale(this.shadowScale);
 

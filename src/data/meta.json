@@ -3,8 +3,6 @@
     { "id": "hp", "name": "최대 HP", "per": 0.1, "fmt": "+{v}%", "costs": [3, 5, 8, 12, 16] },
     { "id": "atk", "name": "공격력", "per": 0.05, "fmt": "+{v}%", "costs": [4, 7, 11, 15, 20] },
     { "id": "speed", "name": "이동속도", "per": 0.034, "fmt": "+{v}%", "costs": [4, 8, 12] },
-    { "id": "roll", "name": "구르기 충전", "per": 1, "fmt": "{n}회", "costs": [10] },
-    { "id": "potion", "name": "회복 포션", "per": 1, "fmt": "런당 {n}개", "costs": [5, 10] },
     { "id": "attach", "name": "부착 시간", "per": 0.2, "fmt": "+{v}초", "costs": [4, 7, 10] }
   ],
   "secondaryCost": 6,

@@ -62,6 +62,8 @@ export class Combat {
       }
       dmg *= target.damageTakenMult();
     }
+    // 소수점 피해는 모두 반올림 (2026-11-10 사용자가 정함)
+    dmg = Math.round(dmg);
     target.lastHit = h;
     if (dmg > 0) {
       target.hp = Math.max(0, target.hp - dmg);

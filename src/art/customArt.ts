@@ -1,6 +1,10 @@
 import type Phaser from 'phaser';
 import { Px, NONE, registerSheet } from './pixel';
-import { DIRS, ORDER, dursOf, HERO_SOURCE, HERO_SHEET_COLS, heroCell } from './heroSprites';
+import { DIRS, ORDER, dursOf, HERO_ANIMS, HERO_SOURCE, HERO_SHEET_COLS, LEFT_DIR, heroCell } from './heroSprites';
+import SODIUM_URL from '../../art/minerals/sodium_ore.png?url';
+import IODINE_URL from '../../art/minerals/iodine_ore.png?url';
+import PICKAXE_URL from '../../art/minerals/pickaxe.png?url';
+import VENT_URL from '../../art/minerals/h2_vent.png?url';
 
 /**
  * 직접 그린 주인공 스프라이트 교체.
@@ -41,7 +45,9 @@ export function installCustomHero(scene: Phaser.Scene): boolean {
     const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
     const cell = Math.max(32, Math.round(img.width / HERO_SHEET_COLS));
     const frames: Px[] = [];
-    DIRS.forEach((dir, di) => {
+    // 아래·위·옆 줄, 그다음 선택 줄인 왼쪽 옆모습 (프레임 수는 옆과 같음)
+    const dirs = [...DIRS.map((dir, di) => ({ dir, di })), { dir: 'side' as const, di: LEFT_DIR }];
+    dirs.forEach(({ dir, di }) => {
       ORDER.forEach((anim, ai) => {
         for (let f = 0; f < dursOf(anim, dir).length; f++) {
           const { col, row } = heroCell(di, ai, f);
@@ -74,5 +80,25 @@ export function installCustomHero(scene: Phaser.Scene): boolean {
   // 다른 이름도 같은 그림으로 (원소별 구운 버전은 쓰지 않음)
   registerSheet(scene, 'hero_elem', elems);
   HERO_SOURCE.custom = true;
+  HERO_SOURCE.left = bodies.slice(HERO_ANIMS.idle_left.start).some((b) => b.d.some((c) => c !== NONE));
   return bodies.some((b) => b.d.some((c) => c !== NONE));
+}
+
+/** art/lab/oxygen_tower_qv.png (40×80 × 8프레임, 쿼터뷰, 바닥 2×2칸) — 지켜야 하는 산소탑. art/lab/tower_qv.py가 그림 (옛 정면 그림은 oxygen_tower.png) */
+const TANK_URL = (import.meta.glob('../../art/lab/oxygen_tower_qv.png', { eager: true, query: '?url', import: 'default' }) as Record<string, string>)[
+  '../../art/lab/oxygen_tower_qv.png'
+];
+/** art/lab/slime.png (16×16 × 4프레임) */
+const SLIME_URL = (import.meta.glob('../../art/lab/slime.png', { eager: true, query: '?url', import: 'default' }) as Record<string, string>)[
+  '../../art/lab/slime.png'
+];
+export function preloadLabArt(scene: Phaser.Scene): void {
+  if (TANK_URL) scene.load.spritesheet('oxygen_tower', TANK_URL, { frameWidth: 40, frameHeight: 80 });
+  // 먼지 평원 광물 (Sprite Fusion): 24×24 칸마다 모양 하나, 아래 줄(23)에 맞춤. 고른 번호는 art/minerals/wip/sf_1/ids.txt
+  scene.load.spritesheet('sodium_ore', SODIUM_URL, { frameWidth: 24, frameHeight: 24 });
+  scene.load.spritesheet('iodine_ore', IODINE_URL, { frameWidth: 24, frameHeight: 24 });
+  scene.load.image('pickaxe', PICKAXE_URL); // 16×16, 손잡이 끝 (1.5, 13.5), 오른쪽 날 끝 (13, 11)
+  scene.load.image('h2_hole', VENT_URL); // 24×24 수소 구멍
+  // Actor는 본체·원소 레이어 두 장을 쓴다. 슬라임은 원소 레이어가 없어서 같은 그림을 넣고 숨긴다
+  if (SLIME_URL) for (const k of ['slime_body', 'slime_elem']) scene.load.spritesheet(k, SLIME_URL, { frameWidth: 16, frameHeight: 16 });
 }

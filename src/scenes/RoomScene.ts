@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { VIEW_W, VIEW_H, RENDER_SCALE, TILE, COLS, ROWS, DEPTH, FONT_S, WORLD_W, WORLD_H } from '../config';
+import { VIEW_W, VIEW_H, RENDER_SCALE, TILE, COLS, ROWS, DEPTH, FONT_S, WORLD_W, WORLD_H, setWorldSize } from '../config';
 import { Terrain } from '../element/terrain';
 import { ReactionEngine } from '../element/reactionEngine';
 import { DATA, colorOf } from '../element/data';
@@ -15,15 +15,20 @@ import { Flamethrower } from '../chem/flamethrower';
 import { Player, type PlayerStats } from '../entities/player';
 import { Enemy, ENEMY_DEFS, type EnemyKind, type EnemyOpts } from '../entities/enemy';
 import { Golem } from '../entities/boss';
+import { Slime } from '../entities/slime';
+import { DustWeather } from '../art/dustWeather';
+import { DustZone } from './dustZone';
 import { Door, Pickup, Interactable, Dummy, REWARD_COLOR } from '../entities/props';
 import type { Actor } from '../entities/actor';
 import {
   BOSS_TEMPLATE,
   COMBAT_TEMPLATES,
   DOOR_SLOTS,
+  DUST_TEMPLATE,
   ENTRANCE_COL,
   HEAL_TEMPLATE,
   HUB_TEMPLATE,
+  LAB_TEMPLATE,
   SHOP_TEMPLATE,
   findMarkers,
   wrapTemplate,
@@ -55,6 +60,10 @@ import { playSfx, playMusic } from '../audio/sfx';
 
 const CHANNEL_PUSH = 70;
 const DEV = new URLSearchParams(location.search).has('dev');
+/** ?lab → 허브 대신 실험실 방어 맵 (방어 모드가 생기기 전까지 맵을 보는 용도) */
+const LAB = new URLSearchParams(location.search).has('lab');
+/** 산소탑 HP. 임시값 (docs/map.md 「나중에 정할 것」) */
+const TANK_HP = 100;
 /** 프레임당 최대 시간 (테스트 환경처럼 프레임이 낮을 때만 ?maxdt= 로 조정) */
 const MAX_DT = Number(new URLSearchParams(location.search).get('maxdt') ?? 1 / 20);
 
@@ -66,7 +75,7 @@ interface WavePlan {
 }
 
 export interface ShopItem {
-  type: 'relic' | 'boon' | 'potion' | 'heal';
+  type: 'relic' | 'boon' | 'heal';
   price: number;
   relic?: RelicDef;
   sold: boolean;
@@ -78,12 +87,17 @@ export type UiRequest =
   | { type: 'boons'; options: BoonDef[]; source: 'reward' | 'shop' }
   | { type: 'relics'; options: RelicDef[] }
   | { type: 'altar' }
-  | { type: 'result'; victory: boolean };
+  | { type: 'tower'; stored: number; max: number; next: number }
+  | { type: 'result'; victory: boolean; title?: string };
 
 export class RoomScene extends Phaser.Scene {
   player!: Player;
-  enemies: Enemy[] = [];
+  enemies: (Enemy | Slime)[] = [];
   boss: Golem | null = null;
+  tank: { x: number; y: number; hp: number; maxHp: number; img: Phaser.GameObjects.Image; bar: Phaser.GameObjects.Graphics } | null = null;
+  private labWave = 0;
+  private labQueued = 0;
+  private labResting = false;
   dummies: Dummy[] = [];
   terrain!: Terrain;
   engine!: ReactionEngine;
@@ -116,7 +130,7 @@ export class RoomScene extends Phaser.Scene {
   private pending = 0;
   private waveDelay = 0;
   private walls!: Phaser.Physics.Arcade.StaticGroup;
-  private playerGroup!: Phaser.Physics.Arcade.Group;
+  playerGroup!: Phaser.Physics.Arcade.Group;
   private enemyGroup!: Phaser.Physics.Arcade.Group;
   private keyE!: Phaser.Input.Keyboard.Key;
   private prompt!: Phaser.GameObjects.Text;
@@ -126,15 +140,24 @@ export class RoomScene extends Phaser.Scene {
   layout: string[] = [];
   private lookX = 0;
   private lookY = 0;
+  /** 보라 먼지 평원의 날리는 먼지·먼지바람·먼지 구름 (다른 맵은 없음) */
+  private weather: DustWeather | null = null;
+  /** 보라 먼지 평원의 하루 (18시간 시계·수소 구멍·광물) */
+  zone: DustZone | null = null;
 
   constructor() {
     super('Room');
   }
 
-  create(data: { hub?: boolean } = {}): void {
+  /** zone: 'dust' → 정착지 고르기에서 고른 보라 먼지 평원 맵 */
+  create(data: { hub?: boolean; zone?: 'dust' } = {}): void {
     this.gameTime = 0;
     this.enemies = [];
     this.boss = null;
+    this.tank = null;
+    this.labWave = 0;
+    this.labQueued = 0;
+    this.labResting = false;
     this.dummies = [];
     this.doors = [];
     this.pickups = [];
@@ -149,25 +172,33 @@ export class RoomScene extends Phaser.Scene {
     this.portalImgs = [];
     this.trial = false;
 
-    this.run = data.hub ? null : getRun();
+    this.run = data.hub || data.zone ? null : getRun();
     this.mode = this.run ? this.run.room.kind : 'hub';
-    const tpl = this.templateFor();
+    const tpl = data.zone === 'dust' ? DUST_TEMPLATE : this.templateFor();
     this.roomName = this.run ? `${REGION.name} ${this.run.depth}/${REGION.length} · ${tpl.name}` : tpl.name;
-    this.layout = wrapTemplate(tpl, { braziers: true });
-    if (this.mode === 'boss' || this.mode === 'hub') this.layout[1] = this.layout[1].replace(/./g, (_ch, i) => (i === 9 || i === 26 ? 'b' : '#'));
+    const lab = tpl === LAB_TEMPLATE;
+    const dust = tpl === DUST_TEMPLATE;
+    // 실험실·먼지 평원은 맵 전체를 그대로 쓰고, 나머지 방은 36×21 틀로 감싼다
+    this.layout = lab || dust ? [...tpl.rows] : wrapTemplate(tpl, { braziers: true });
+    if (!lab && !dust && (this.mode === 'boss' || this.mode === 'hub')) this.layout[1] = this.layout[1].replace(/./g, (_ch, i) => (i === 9 || i === 26 ? 'b' : '#'));
+    setWorldSize(this.layout[0].length, this.layout.length);
 
     const cam = this.cameras.main;
     cam.setZoom(1).setBounds(0, 0, WORLD_W, WORLD_H).setRoundPixels(true);
     cam.fadeIn(350, 24, 20, 37);
-    this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
+    // 맵 밖까지 그려진 맵은 움직임만 play 칸 안으로 (캐릭터·적은 월드 경계에 부딪힘)
+    const play = tpl.play;
+    if (play) this.physics.world.setBounds(play.c * TILE, play.r * TILE, play.w * TILE, play.h * TILE);
+    else this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
     this.input.mouse?.disableContextMenu();
     this.keyE = this.input.keyboard!.addKey('E');
 
     this.scheduler = new Scheduler();
     this.hitstop = new Hitstop();
     this.vfx = new Vfx(this);
-    const theme = this.mode === 'hub' ? 'shrine' : this.mode === 'boss' ? 'boss' : 'ash';
-    this.lighting = new Lighting(this, theme === 'shrine' ? 0x5a6988 : theme === 'boss' ? 0x733e39 : 0x5a6988);
+    const theme = dust ? 'dust' : lab ? 'lab' : this.mode === 'hub' ? 'shrine' : this.mode === 'boss' ? 'boss' : 'ash';
+    // 실험실은 천장 조명이 있는 밝은 방, 먼지 평원은 낮의 바깥이라 실험실만큼 밝게
+    this.lighting = new Lighting(this, theme === 'lab' || theme === 'dust' ? 0xc0cbdc : theme === 'boss' ? 0x733e39 : 0x5a6988);
     this.vfx.lighting = this.lighting;
     this.terrain = new Terrain(this, this.layout, theme);
     this.combat = new Combat(this);
@@ -208,6 +239,8 @@ export class RoomScene extends Phaser.Scene {
       .setShadow(1, 1, '#181425', 0, false, true)
       .setDepth(DEPTH.text);
 
+    this.weather = dust ? new DustWeather(this) : null;
+    this.zone = this.weather ? new DustZone(this) : null;
     this.state = 'play';
     this.setupMode();
     if (DEV) this.input.keyboard!.on('keydown', this.onDevKey, this);
@@ -218,7 +251,7 @@ export class RoomScene extends Phaser.Scene {
   }
 
   private templateFor(): RoomTemplate {
-    if (!this.run) return HUB_TEMPLATE;
+    if (!this.run) return LAB ? LAB_TEMPLATE : HUB_TEMPLATE;
     const id = this.run.room.template;
     if (this.mode === 'shop') return SHOP_TEMPLATE;
     if (this.mode === 'heal') return HEAL_TEMPLATE;
@@ -238,6 +271,20 @@ export class RoomScene extends Phaser.Scene {
       const img = this.add.image(x, y - 3, 'flame', '0').setDepth(DEPTH.terrain + 0.4).setOrigin(0.5, 1);
       this.flames.push({ img, x, y: y - 4, ph: Math.random() * 10 });
     }
+    // 산소탑 (2×2칸 중 왼쪽 위 'a' 기준)
+    const tank = findMarkers(this.layout, 'a')[0];
+    if (tank) {
+      const x = (tank.c + 1) * TILE;
+      const y = (tank.r + 2) * TILE;
+      // 기포가 올라가고 꼭대기 불빛이 깜빡이는 8프레임
+      if (!this.anims.exists('oxygen_tower_idle')) this.anims.create({ key: 'oxygen_tower_idle', frames: this.anims.generateFrameNumbers('oxygen_tower', {}), frameRate: 9, repeat: -1 });
+      const img = this.add.sprite(x, y, 'oxygen_tower').setOrigin(0.5, 1).setDepth(DEPTH.actor + y).play('oxygen_tower_idle');
+      this.glows.push({ x, y: y - 48, r: 66, color: 0x2ce8f5, a: 0.5 });
+      const blk = this.walls.create(x, y - 8, 'px') as Phaser.Physics.Arcade.Sprite;
+      blk.setVisible(false).setDisplaySize(TILE * 2, TILE).refreshBody();
+      this.tank = { x, y, hp: TANK_HP, maxHp: TANK_HP, img, bar: this.add.graphics().setDepth(DEPTH.hud) };
+      this.drawTankBar();
+    }
     // 입구 철창
     if (this.mode !== 'hub') {
       this.add.image(ENTRANCE_COL * TILE + TILE, (ROWS - 1) * TILE, 'gate', '0').setOrigin(0.5, 0).setDepth(DEPTH.terrain + 0.5);
@@ -250,10 +297,11 @@ export class RoomScene extends Phaser.Scene {
     const base = playerBase();
     const run = this.run;
     const st: PlayerStats = run
-      ? { maxHp: run.maxHp, hp: run.hp, atk: base.atk, speed: base.speed, rollMax: base.rollMax, potions: run.potions }
-      : { maxHp: base.maxHp, hp: base.maxHp, atk: base.atk, speed: base.speed, rollMax: base.rollMax, potions: base.potions };
+      ? { maxHp: run.maxHp, hp: run.hp, atk: base.atk, speed: base.speed }
+      : { maxHp: base.maxHp, hp: base.maxHp, atk: base.atk, speed: base.speed };
     const el = (this.registry.get('element') as Element | undefined) ?? 'fire';
-    const pos = this.mode === 'hub' ? { x: WORLD_W / 2, y: 15 * TILE + 8 } : { x: ENTRANCE_COL * TILE + TILE, y: (ROWS - 2) * TILE + 6 };
+    const start = findMarkers(this.layout, 'p')[0];
+    const pos = start ? this.tileCenter(start.c, start.r) : this.mode === 'hub' ? { x: WORLD_W / 2, y: 15 * TILE + 8 } : { x: ENTRANCE_COL * TILE + TILE, y: (ROWS - 2) * TILE + 6 };
     this.player = new Player(this, this.playerGroup, pos.x, pos.y, st, el);
   }
 
@@ -349,18 +397,14 @@ export class RoomScene extends Phaser.Scene {
       items.push({ type: 'relic', price: 130 + run.depth * 6, relic, sold: false, name: relic.name, desc: relic.desc });
     }
     items.push({ type: 'boon', price: 85 + run.depth * 4, sold: false, name: '반응 강화', desc: '반응 강화 3지선다' });
-    items.push(
-      Math.random() < 0.5
-        ? { type: 'potion', price: 45, sold: false, name: '회복 포션', desc: '포션 +1 (Q로 사용)' }
-        : { type: 'heal', price: 55, sold: false, name: '붕대', desc: 'HP 40% 회복' },
-    );
+    items.push({ type: 'heal', price: 55, sold: false, name: '붕대', desc: 'HP 40% 회복' });
     this.shopItems = items;
     findMarkers(this.layout, 'S').forEach((m, i) => {
       const item = items[i];
       if (!item) return;
       const { x, y } = this.tileCenter(m.c, m.r);
       this.add.image(x, y + 8, 'pedestal', '0').setOrigin(0.5, 1).setDepth(DEPTH.actor + y);
-      const iconName = item.type === 'relic' ? item.relic!.icon : item.type === 'boon' ? 'boon' : item.type === 'potion' ? 'potion' : 'heart';
+      const iconName = item.type === 'relic' ? item.relic!.icon : item.type === 'boon' ? 'boon' : 'heart';
       const icon = this.add.image(x, y - 6, 'icons', String(ICON[iconName])).setDepth(DEPTH.actor + y + 1);
       const price = this.add
         .text(x, y + 16, `${item.price}G`, { fontFamily: FONT_S, fontSize: '8px', color: toCss(C.gold0) })
@@ -520,8 +564,12 @@ export class RoomScene extends Phaser.Scene {
       this.lighting.update(dt);
       this.vfx.updateDebris(dt);
       this.enemies = this.enemies.filter((e) => !e.dead);
+      // 실험실 슬라임 웨이브는 실험실에서만 (먼지 평원의 밤 적은 따로)
+      if (this.tank && !this.zone) this.updateLab();
       this.updateWaves(dt);
       this.updateAmbient(dt);
+      this.zone?.update(dt);
+      this.weather?.update(dt * (this.zone?.speed ?? 1));
     }
 
     this.updateCamera();
@@ -568,6 +616,7 @@ export class RoomScene extends Phaser.Scene {
   }
 
   private updateAmbient(dt: number): void {
+    if (this.weather) return; // 먼지 평원은 허브의 원소 불티 대신 먼지 날씨
     this.emberT -= dt;
     if (this.emberT <= 0 && this.mode !== 'hub') {
       this.emberT = 0.12;
@@ -601,6 +650,7 @@ export class RoomScene extends Phaser.Scene {
     this.projectiles.emitLights();
     this.chem.emitLights();
     this.flame.emitLights();
+    this.zone?.emitLights();
     this.lighting.render();
   }
 
@@ -653,6 +703,13 @@ export class RoomScene extends Phaser.Scene {
       }
     }
     this.promptTarget = best;
+    // 다른 상호작용이 없으면 E로 던진 시약 다시 담기
+    const pick = !best && !p.dead && !p.inputLocked && this.state !== 'leaving' ? this.chem.pickable(p.x, p.y) : null;
+    if (pick) {
+      this.prompt.setText('E 담기').setPosition(Math.round(pick.x), Math.round(pick.y)).setVisible(true);
+      if (Phaser.Input.Keyboard.JustDown(this.keyE)) pick.take();
+      return;
+    }
     if (best) {
       const text = best instanceof Pickup ? 'E 보상 받기' : best.prompt;
       this.prompt.setText(text).setPosition(Math.round(best.x), Math.round(best.y - (best instanceof Pickup ? 22 : 34))).setVisible(true);
@@ -718,7 +775,6 @@ export class RoomScene extends Phaser.Scene {
   private saveRunState(): void {
     if (!this.run) return;
     this.run.hp = Math.max(1, this.player.hp);
-    this.run.potions = this.player.potions;
     this.registry.set('element', this.player.element);
   }
 
@@ -810,7 +866,6 @@ export class RoomScene extends Phaser.Scene {
     playSfx('buy');
     if (item.type === 'relic' && item.relic) this.applyRelic(item.relic.id);
     else if (item.type === 'boon') this.requestUi({ type: 'boons', options: rollBoons(run, 3), source: 'shop' });
-    else if (item.type === 'potion') this.player.potions++;
     else this.player.heal(Math.round(this.player.maxHp * 0.4));
   }
 
@@ -878,12 +933,64 @@ export class RoomScene extends Phaser.Scene {
     });
   }
 
-  onPlayerDeath(): void {
-    if (this.state === 'victory') return;
+  onPlayerDeath(title?: string): void {
+    if (this.state === 'victory' || this.state === 'dead') return;
     this.state = 'dead';
     this.shake(0.4, 0.012);
     playMusic('none');
-    this.time.delayedCall(1800, () => this.requestUi({ type: 'result', victory: false }));
+    this.time.delayedCall(1800, () => this.requestUi({ type: 'result', victory: false, title }));
+  }
+
+  // ───────────────────────── 실험실 (방어) ─────────────────────────
+
+  /** 슬라임 웨이브. 다 막으면 3초 쉬고 다음 웨이브 (2마리씩 늘어남) */
+  private updateLab(): void {
+    if (this.state !== 'play' || this.labResting || this.labQueued > 0 || this.enemies.length > 0) return;
+    this.labResting = true;
+    if (this.labWave > 0) this.banner(`웨이브 ${this.labWave} 막음!`, C.gold0);
+    this.scheduler.after(this.labWave > 0 ? 3 : 1, () => this.startLabWave());
+  }
+
+  private startLabWave(): void {
+    this.labResting = false;
+    this.labWave++;
+    const n = 4 + 2 * this.labWave;
+    this.labQueued = n;
+    this.banner(`웨이브 ${this.labWave} · 슬라임 ${n}마리`, 0xc0cbdc);
+    const gates = findMarkers(this.layout, 'E').filter((m) => m.c === COLS - 1);
+    for (let i = 0; i < n; i++) {
+      this.scheduler.after(1 + i * 1.5, () => {
+        this.labQueued--;
+        if (this.state !== 'play') return;
+        const g = Phaser.Utils.Array.GetRandom(gates);
+        const { x, y } = this.tileCenter(g.c, g.r);
+        this.enemies.push(new Slime(this, this.enemyGroup, x, y));
+      });
+    }
+  }
+
+  /** 슬라임이 산소탑을 때림. 0이 되면 진다 */
+  hitTank(dmg: number): void {
+    const t = this.tank;
+    if (!t || this.state !== 'play') return;
+    t.hp = Math.max(0, t.hp - dmg);
+    this.drawTankBar();
+    this.vfx.number(t.x, t.y - 82, dmg, 0xf6757a, false);
+    t.img.setTintFill(0xffffff);
+    this.time.delayedCall(60, () => t.img.clearTint());
+    playSfx('hit');
+    if (t.hp > 0) return;
+    this.vfx.explosion(t.x, t.y - 40, 40, 0x2ce8f5);
+    this.onPlayerDeath('산소탑 파괴');
+  }
+
+  private drawTankBar(): void {
+    const t = this.tank!;
+    const w = 28;
+    const top = t.y - 86;
+    t.bar.clear();
+    t.bar.fillStyle(C.out, 0.9).fillRect(t.x - w / 2 - 1, top - 1, w + 2, 4);
+    t.bar.fillStyle(0x2ce8f5).fillRect(t.x - w / 2, top, Math.ceil((w * t.hp) / t.maxHp), 2);
   }
 
   /** 결과 화면 확인 → 런 종료 (정수·숙련도는 메타로) → 성소 */

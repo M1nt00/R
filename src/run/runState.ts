@@ -42,7 +42,6 @@ export interface RunState {
   maxHp: number;
   gold: number;
   essence: number;
-  potions: number;
   boons: Record<string, number>;
   relics: string[];
   room: RoomSpec;
@@ -70,7 +69,6 @@ export function startRun(): RunState {
     maxHp: base.maxHp,
     gold: 0,
     essence: 0,
-    potions: base.potions,
     boons: {},
     relics: [],
     room: { kind: 'combat', reward: 'boon', template: first, depth: 1 },

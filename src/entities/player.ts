@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { RoomScene } from '../scenes/RoomScene';
 import { Actor } from './actor';
 import type { Element } from '../element/types';
-import { ELEMENT_COLOR, ELEMENT_LIGHT, E32, scaleColor } from '../art/palette';
+import { ELEMENT_COLOR, scaleColor } from '../art/palette';
 import type { HitInfo, HitResult } from '../combat/damage';
 import { heroOriginY } from '../art/customArt';
 import { HERO_ANIMS, HERO_ANCHORS, HERO_SOURCE, HERO_SPRING, type Dir } from '../art/heroSprites';
@@ -11,12 +11,9 @@ import { DEPTH } from '../config';
 import { playSfx } from '../audio/sfx';
 
 const SPEED = 105;
-const ROLL_SPEED = 230;
-const ROLL_TIME = 0.3; // 무적 0.3초
-const ROLL_RECHARGE = 1.1;
 const HURT_INVULN = 0.6;
 
-type Keys = Record<'W' | 'A' | 'S' | 'D' | 'SPACE' | 'Q', Phaser.Input.Keyboard.Key>;
+type Keys = Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
 type SwingAnim = 'attack' | 'attack2' | 'cast';
 
 export interface PlayerStats {
@@ -24,8 +21,6 @@ export interface PlayerStats {
   hp: number;
   atk: number;
   speed: number;
-  rollMax: number;
-  potions: number;
 }
 
 export class Player extends Actor {
@@ -34,13 +29,6 @@ export class Player extends Actor {
   lockT = 0;
   atkMult: number;
   speedMult: number;
-  potions: number;
-
-  rollMax: number;
-  rollCharges: number;
-  rollRecharge = 0;
-  rollT = 0;
-  private rollDir = new Phaser.Math.Vector2(0, 1);
 
   hurtInvulnT = 0;
   private hurtAnimT = 0;
@@ -53,7 +41,6 @@ export class Player extends Actor {
   aimX = 0;
   aimY = 0;
   aimAngle = Math.PI / 2;
-  private trailT = 0;
   private readonly keys: Keys;
   private readonly aura: Phaser.GameObjects.Graphics;
   private readonly springBack: Phaser.GameObjects.Graphics;
@@ -80,10 +67,7 @@ export class Player extends Actor {
     this.element = element;
     this.atkMult = st.atk;
     this.speedMult = st.speed;
-    this.rollMax = st.rollMax;
-    this.rollCharges = st.rollMax;
-    this.potions = st.potions;
-    this.keys = s.input.keyboard!.addKeys('W,A,S,D,SPACE,Q') as Keys;
+    this.keys = s.input.keyboard!.addKeys('W,A,S,D') as Keys;
     this.aura = s.add.graphics().setDepth(4);
     this.springBack = s.add.graphics();
     this.springFront = s.add.graphics();
@@ -92,10 +76,6 @@ export class Player extends Actor {
     // 검날(원소 레이어)에만 은은한 글로우
     this.elemImg.preFX?.addGlow(ELEMENT_COLOR[element], 1.2, 0, false, 0.1, 4);
     this.play('idle_down');
-  }
-
-  get rolling(): boolean {
-    return this.rollT > 0;
   }
 
   update(dt: number): void {
@@ -109,13 +89,6 @@ export class Player extends Actor {
     this.hurtInvulnT = Math.max(0, this.hurtInvulnT - dt);
     this.hurtAnimT = Math.max(0, this.hurtAnimT - dt);
     this.actionT = Math.max(0, this.actionT - dt);
-    if (this.rollCharges < this.rollMax) {
-      this.rollRecharge += dt;
-      if (this.rollRecharge >= ROLL_RECHARGE) {
-        this.rollRecharge = 0;
-        this.rollCharges++;
-      }
-    }
 
     const aim = this.s.pointerWorld();
     this.aimX = aim.x;
@@ -129,78 +102,35 @@ export class Player extends Actor {
     const mlen = Math.hypot(mx, my) || 1;
 
     if (this.disabled) {
-      this.rollT = 0;
       this.squashX = this.squashY = 1;
       this.move(0, 0, dt);
       this.pickAnim(false);
       return;
     }
 
-    if (!locked) {
-      if (Phaser.Input.Keyboard.JustDown(k.Q)) this.drinkPotion();
-      if (Phaser.Input.Keyboard.JustDown(k.SPACE) && this.rollCharges > 0 && this.rollT <= 0) {
-        if (mx !== 0 || my !== 0) this.rollDir.set(mx / mlen, my / mlen);
-        else this.rollDir.set(Math.cos(this.aimAngle), Math.sin(this.aimAngle));
-        this.rollCharges--;
-        this.rollT = ROLL_TIME;
-        this.actionT = 0;
-        this.s.vfx.dust(this.x, this.y, 5);
-        playSfx('roll');
+    const sp = SPEED * this.speedMult * (this.lockT > 0 ? 0.4 : 1);
+    const moving = mx !== 0 || my !== 0;
+    if (moving) {
+      this.stepT -= dt;
+      if (this.stepT <= 0) {
+        this.stepT = 0.26;
+        this.s.vfx.dust(this.x, this.y, 1);
       }
     }
-
-    let vx: number;
-    let vy: number;
-    let moving = false;
-    if (this.rollT > 0) {
-      this.rollT -= dt;
-      vx = this.rollDir.x * ROLL_SPEED;
-      vy = this.rollDir.y * ROLL_SPEED;
-      const p = 1 - this.rollT / ROLL_TIME;
-      // 살짝 떠오르며 구름 → 그림자는 작아졌다 커짐
-      const arc = Math.sin(Math.PI * Math.min(1, p * 1.15));
-      this.hop = arc * 4;
-      this.shadowScale = 1 - arc * 0.35;
-      this.trail(dt, ELEMENT_LIGHT[this.element]);
-      if (this.rollT <= 0) {
-        this.hop = 0;
-        this.shadowScale = 1;
-        this.s.vfx.dust(this.x, this.y, 4);
-      }
-    } else {
-      const sp = SPEED * this.speedMult * (this.lockT > 0 ? 0.4 : 1);
-      vx = (mx / mlen) * sp;
-      vy = (my / mlen) * sp;
-      moving = mx !== 0 || my !== 0;
-      if (moving) {
-        this.stepT -= dt;
-        if (this.stepT <= 0) {
-          this.stepT = 0.26;
-          this.s.vfx.dust(this.x, this.y, 1);
-        }
-      }
-    }
-    this.move(vx, vy, dt);
+    this.move((mx / mlen) * sp, (my / mlen) * sp, dt);
     this.pickAnim(moving);
   }
 
   /** 시약 던지기 동작 (시전 동작 재사용) */
   throwPose(): void {
-    if (this.dead || this.rollT > 0) return;
+    if (this.dead) return;
     this.startAction('cast');
     this.lockT = Math.max(this.lockT, 0.08);
   }
 
-  /** 불 뿜기: 불줄기가 손에 붙어 있는 동안 시전 자세를 끝 프레임에서 유지 */
-  firePose(): void {
-    if (this.dead || this.rollT > 0) return;
-    if (this.action !== 'cast' || this.actionT <= 0) this.startAction('cast');
-    this.actionT = Math.max(this.actionT, 0.1);
-  }
-
   private startAction(anim: SwingAnim) {
     this.action = anim;
-    const key = `${anim}_${this.dirFor(this.aimAngle)}`;
+    const key = this.animKey(anim, this.dirFor(this.aimAngle));
     this.actionT = HERO_ANIMS[key].durs.reduce((a, b) => a + b, 0);
     this.play(key, true);
   }
@@ -215,24 +145,16 @@ export class Player extends Actor {
     return ay > 0 ? 'down' : 'up';
   }
 
-  private pickAnim(moving: boolean) {
-    if (this.rollT > 0) {
-      this.dir = this.dirFor(Math.atan2(this.rollDir.y, this.rollDir.x));
-      this.play(`roll_${this.dir}`);
-      return;
-    }
-    this.dir = this.dirFor(this.aimAngle);
-    if (this.hurtAnimT > 0) this.play(`hurt_${this.dir}`);
-    else if (this.actionT > 0) this.play(`${this.action}_${this.dir}`);
-    else this.play(`${moving ? 'run' : 'idle'}_${this.dir}`);
+  /** 왼쪽 옆모습 그림이 따로 있으면 그걸 쓰고, 없으면 오른쪽 그림을 뒤집는다 (actor.ts) */
+  private animKey(anim: string, dir: Dir): string {
+    return dir === 'side' && this.facing < 0 && HERO_SOURCE.left ? `${anim}_left` : `${anim}_${dir}`;
   }
 
-  private trail(dt: number, color: number) {
-    this.trailT -= dt;
-    if (this.trailT <= 0) {
-      this.trailT = 0.04;
-      this.s.vfx.afterimage(this, color);
-    }
+  private pickAnim(moving: boolean) {
+    this.dir = this.dirFor(this.aimAngle);
+    if (this.hurtAnimT > 0) this.play(this.animKey('hurt', this.dir));
+    else if (this.actionT > 0) this.play(this.animKey(this.action, this.dir));
+    else this.play(this.animKey(moving ? 'run' : 'idle', this.dir));
   }
 
   heal(n: number): void {
@@ -242,21 +164,7 @@ export class Player extends Actor {
     if (this.hp - before >= 5) this.s.vfx.floatText(this.x, this.y - 26, `+${Math.round(this.hp - before)}`, 0x63c74d, 6, 0.7, 12);
   }
 
-  refundRoll(): void {
-    this.rollCharges = Math.min(this.rollMax, this.rollCharges + 1);
-  }
-
-  drinkPotion(): void {
-    if (this.potions <= 0 || this.hp >= this.maxHp) return;
-    this.potions--;
-    this.heal(Math.round(this.maxHp * 0.35));
-    this.s.vfx.ring(this.x, this.y - 6, 4, 20, 0x63c74d, 0.4, 2);
-    this.s.vfx.spark(this.x, this.y - 8, 0x63c74d, 14, 40, 70);
-    playSfx('heal');
-  }
-
   override incoming(h: HitInfo): HitResult | 'ok' {
-    if (this.rollT > 0) return 'dodged';
     if (this.hurtInvulnT > 0 && !h.isReaction && !h.environmental) return 'ignored';
     return 'ok';
   }

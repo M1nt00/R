@@ -103,8 +103,6 @@ export function playerBase() {
     maxHp: Math.round(100 * (1 + 0.1 * statLevel('hp'))),
     atk: 1 + 0.05 * statLevel('atk'),
     speed: 1 + 0.034 * statLevel('speed'),
-    rollMax: 2 + statLevel('roll'),
-    potions: 1 + statLevel('potion'),
     attach: 3 + 0.2 * statLevel('attach'),
   };
 }

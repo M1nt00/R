@@ -15,3 +15,4 @@ art/hero/backup/
 /hero_elem.png
 # 남이 만든 참고 그림 (출처가 따로 있어 저장소에 올리지 않음)
 art/hero/wip/reference/
+__pycache__/

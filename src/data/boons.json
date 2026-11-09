@@ -1,6 +1,5 @@
 [
   { "id": "vap_dmg", "reaction": "vaporize", "name": "끓는점", "desc": "증발 피해 +40%", "max": 3, "mod": { "damage": 0.4 } },
-  { "id": "vap_roll", "reaction": "vaporize", "name": "수증기 발판", "desc": "증발을 일으키면 구르기 1회 즉시 충전", "max": 1, "flag": "vaporize_roll" },
   { "id": "ele_targets", "reaction": "electro_charged", "name": "전도체", "desc": "감전 연쇄 대상 +2", "max": 3, "mod": { "targets": 2 } },
   { "id": "ele_water", "reaction": "electro_charged", "name": "누전", "desc": "감전으로 처치하면 주변 적에게 물 부착", "max": 1, "flag": "electro_water_on_kill" },
   { "id": "frz_time", "reaction": "freeze", "name": "영구 동토", "desc": "빙결 시간 +1초", "max": 3, "mod": { "duration": 1 } },

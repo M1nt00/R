@@ -191,8 +191,8 @@ export class Vfx {
 
   /** 더하기 광채 (조명 위에 얹혀 빛나 보임) */
   glow(x: number, y: number, r: number, color: number, dur = 0.25, alpha = 0.9): void {
-    // 계단식 픽셀 광채를 정수배로만 키움
-    const sc = Math.max(1, Math.round(r / 16));
+    // 부드러운 광채라 반지름 그대로 키움 (32px 그림 = 반지름 16)
+    const sc = r / 16;
     const img = this.s.add.image(Math.round(x), Math.round(y), 'glow', '0').setTint(color).setBlendMode(Phaser.BlendModes.ADD).setDepth(DEPTH.glow);
     img.setScale(sc).setAlpha(alpha);
     this.s.tweens.add({ targets: img, alpha: 0, duration: dur * 1000, onComplete: () => img.destroy() });

@@ -4,11 +4,18 @@ export const VIEW_H = 270;
 export const RENDER_SCALE = 1;
 
 export const TILE = 16;
-/** 방은 화면보다 조금 커서 카메라가 따라다닌다 */
-export const COLS = 36;
-export const ROWS = 21;
-export const WORLD_W = COLS * TILE;
-export const WORLD_H = ROWS * TILE;
+/** 맵 크기(칸). 맵마다 달라서 RoomScene이 맵을 만들 때 setWorldSize로 바꾼다 (import한 쪽도 바뀐 값을 봄) */
+export let COLS = 36;
+export let ROWS = 21;
+export let WORLD_W = COLS * TILE;
+export let WORLD_H = ROWS * TILE;
+// shortcut: 맵 크기가 전역 하나라 Room 장면 두 개를 동시에 띄우면 안 됨, 그럴 일이 생기면 Terrain이 크기를 갖게
+export function setWorldSize(cols: number, rows: number) {
+  COLS = cols;
+  ROWS = rows;
+  WORLD_W = cols * TILE;
+  WORLD_H = rows * TILE;
+}
 
 /** 한글 픽셀 폰트 (Galmuri, OFL) — 설계 크기 그대로만 쓴다 */
 export const FONT_S = 'Galmuri7'; // 8px

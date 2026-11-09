@@ -98,6 +98,12 @@ export const HERO_ANIMS: Record<string, AnimDef> = (() => {
       o += durs.length;
     }
   }
+  // 선택: 왼쪽을 보는 옆모습 (시트 25~32번째 줄). 그림이 있으면 좌우 반전 대신 쓴다 (HERO_SOURCE.left)
+  for (const a of ORDER) {
+    const durs = dursOf(a, 'side');
+    out[`${a}_left`] = { start: o, count: durs.length, durs, loop: LOOP[a] === true };
+    o += durs.length;
+  }
   return out;
 })();
 
@@ -108,7 +114,9 @@ export const CAST_HIT_DELAY = DURS.cast[0];
 export const HERO_ANCHORS: Anchor[] = [];
 
 /** 직접 그린 PNG를 쓰는 중인지 (그때는 스프링 앵커가 없으므로 2차 동작을 끈다) */
-export const HERO_SOURCE = { custom: false };
+export const HERO_SOURCE = { custom: false, left: false };
+/** 왼쪽 옆모습 줄의 방향 번호 (heroCell 행 = LEFT_DIR × 8 + 동작) */
+export const LEFT_DIR = DIRS.length;
 
 /** 시트 배치: 행 = 방향 × 동작 (아래·위·옆 순, 동작은 ORDER 순), 열 = 프레임 번호 */
 export const HERO_SHEET_COLS = 12;

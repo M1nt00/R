@@ -1,0 +1,9 @@
+SE dcf5393d-6cd5-49db-be91-89a2ac1e9ad6
+S f2a9ae25-7b60-4713-8b97-025626867f22
+SW 654c24bf-afe8-4a2b-8c7d-7d81960cb57b
+E 280da506-0a7f-4338-acb3-3ce647d847f0
+W f686d5e0-f8a9-413b-8ac8-2916b9b77af5
+NE ae816d79-b59e-4e0b-b7e2-57f88401ce2d
+N 038be582-2743-451d-8766-651e771f24b3
+NW 12b31cd1-431e-4512-a2b7-45d9180c0e8f
+source 5640ae3b-a204-40d5-8ea2-60e9aa4f8faf (2-08, user outline + 32px tall, = spritefusion_2/08_edit2.png)

@@ -1,4 +1,4 @@
-import type Phaser from 'phaser';
+import Phaser from 'phaser';
 import { Px, outline, registerSheet, registerCanvas, registerActor, bake } from './pixel';
 import { C, E0, E1, E2, ELEMENT_RAMP, type LookName } from './palette';
 
@@ -240,25 +240,27 @@ function canvasTextures(scene: Phaser.Scene) {
   };
   registerSheet(scene, 'shadow', [shadowPx(14, 5)]);
   registerSheet(scene, 'shadow_big', [shadowPx(44, 12)]);
-  // 조명 (계단식 그라데이션 → 픽셀아트 느낌)
-  registerCanvas(scene, 'light', 64, 64, (ctx) => {
-    const steps = 7;
-    for (let s = steps; s >= 1; s--) {
-      const r = (s / steps) * 32;
-      const a = Math.pow(1 - (s - 1) / steps, 1.6);
-      ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
-      ctx.beginPath();
-      ctx.arc(32, 32, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  });
-  // 광채: 부드러운 원 대신 계단식 픽셀 원 (ADD로 겹쳐 빛나게)
-  const glow = new Px(32, 32);
-  glow.disc(15.5, 15.5, 15, 0x404040);
-  glow.disc(15.5, 15.5, 11, 0x808080);
-  glow.disc(15.5, 15.5, 7, 0xc0c0c0);
-  glow.disc(15.5, 15.5, 3.5, 0xffffff);
-  registerSheet(scene, 'glow', [glow]);
+  // 조명(light)·광채(glow): 부드러운 원형 그라데이션. 예전 계단식 원은 픽셀아트 모드(가장 가까운 픽셀)로 2~3배 키우면
+  // 계단이 네모 덩어리로 보여서, 이 둘만 LINEAR 필터로 매끈하게 키운다.
+  // 밝기 = 1 - smoothstep(inner, 1, 거리): 가운데는 꽉 차고 가장자리로 부드럽게 0. 예전 계단식 원과 전체 밝기가 비슷하게 맞춤
+  const smoothDisc = (key: string, size: number, inner: number) => {
+    const fall = (d: number) => {
+      const t = Math.min(1, Math.max(0, (d - inner) / (1 - inner)));
+      return 1 - t * t * (3 - 2 * t);
+    };
+    registerCanvas(scene, key, size, size, (ctx) => {
+      const c = size / 2;
+      const g = ctx.createRadialGradient(c, c, 0, c, c, c);
+      for (let i = 0; i <= 16; i++) g.addColorStop(i / 16, `rgba(255,255,255,${fall(i / 16).toFixed(3)})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, size, size);
+    });
+    const tex = scene.textures.get(key);
+    tex.setFilter(Phaser.Textures.FilterMode.LINEAR);
+    tex.add('0', 0, 0, 0, size, size); // 예전처럼 프레임 '0'으로도 부를 수 있게
+  };
+  smoothDisc('light', 64, 0.1);
+  smoothDisc('glow', 32, 0);
   registerCanvas(scene, 'scorch', 32, 32, (ctx) => {
     for (let i = 0; i < 60; i++) {
       const a = Math.random() * Math.PI * 2;

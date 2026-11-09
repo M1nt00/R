@@ -1,0 +1,5 @@
+S 0ab95f32-2d6d-45e6-9fa2-270ccbc0e085  (user edit "Increasing the head size slightly" of S f2a9ae25, then hand touched)
+S_alt_unused ec6deb6d-83a4-471d-8b12-6eee3a5ae471  (second output of the same edit, not chosen)
+W f686d5e0-f8a9-413b-8ac8-2916b9b77af5  (8-dir W, hand touched by user)
+N 038be582-2743-451d-8766-651e771f24b3  (8-dir N, hand touched by user)
+E = mirror of W
