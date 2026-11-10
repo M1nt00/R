@@ -573,7 +573,7 @@ export class UIScene extends Phaser.Scene {
           zone.on('pointerup', () => go(i));
           c.add([tg, label, zone]);
         });
-        if (tab === 0) this.towerOxygenTab(c, g, bodyY, stored, max, z.towerNext);
+        if (tab === 0) this.towerOxygenTab(c, g, bodyY, stored, max, z.towerNext, z.value('make'));
         else if (tab === 1) this.towerUpgradeTab(c, px, pw, bodyY);
         else {
           c.add(this.txt(W / 2, bodyY + 30, '아직 들어온 물건이 없어요', 10, toCss(E32.steel)).setOrigin(0.5, 0));
@@ -598,16 +598,17 @@ export class UIScene extends Phaser.Scene {
     );
   }
 
-  /** 산소 탭: 모인 산소 칸(찬 칸은 O₂ 시험관) + 다음 산소까지 막대 */
-  private towerOxygenTab(c: Phaser.GameObjects.Container, g: Phaser.GameObjects.Graphics, y0: number, stored: number, max: number, next: number) {
+  /** 산소 탭: 왼쪽에 모인 산소 칸(찬 칸은 O₂ 시험관), 오른쪽에 생산 속도와 다음 산소까지 막대 */
+  private towerOxygenTab(c: Phaser.GameObjects.Container, g: Phaser.GameObjects.Graphics, y0: number, stored: number, max: number, next: number, rate: number) {
     const SL = 24;
     const GAPX = 4;
-    const x0 = Math.round(W / 2 - (max * SL + (max - 1) * GAPX) / 2);
-    const barW = max * SL + (max - 1) * GAPX - 46;
-    c.add(this.txt(x0, y0 + 9, `모인 산소 ${stored}/${max}`, 8, toCss(E32.silver)));
+    const slotsW = max * SL + (max - 1) * GAPX;
+    const barW = 84;
+    const x0 = Math.round(W / 2 - (slotsW + 12 + barW) / 2);
+    const y = y0 + 26;
+    c.add(this.txt(x0, y - 13, `모인 산소 ${stored}/${max}`, 8, toCss(E32.silver)));
     for (let k = 0; k < max; k++) {
       const x = x0 + k * (SL + GAPX);
-      const y = y0 + 23;
       g.fillStyle(E32.black, 1);
       g.fillRect(x, y, SL, SL);
       g.fillStyle(k < stored ? E32.slate : E32.indigo, 1);
@@ -621,14 +622,15 @@ export class UIScene extends Phaser.Scene {
         c.add(sym.setPosition(x + 12 - (sym.width >> 1), y + 12 - (sym.height >> 1)));
       }
     }
-    const by = y0 + 55;
-    c.add(this.txt(x0, by, '다음 산소', 8, toCss(E32.steel)));
-    if (stored >= max) c.add(this.txt(x0 + 46, by, '가득 찼어요', 8, toCss(E32.lime)));
+    const bx = x0 + slotsW + 12;
+    c.add(this.txt(bx, y - 13, '생산', 8, toCss(E32.steel)));
+    c.add(this.txt(bx + barW, y - 13, `${rate}개/시간`, 8, toCss(E32.cyan)).setOrigin(1, 0));
+    c.add(this.txt(bx, y + 1, '다음 산소', 8, toCss(E32.steel)));
+    if (stored >= max) c.add(this.txt(bx, y + 13, '가득 찼어요', 8, toCss(E32.lime)));
     else {
-      g.fillStyle(E32.indigo, 1);
-      g.fillRect(x0 + 46, by + 4, barW, 4);
-      g.fillStyle(E32.cyan, 1);
-      g.fillRect(x0 + 46, by + 4, Math.round(barW * Phaser.Math.Clamp(next, 0, 1)), 4);
+      g.fillStyle(E32.black, 1).fillRect(bx - 1, y + 14, barW + 2, 6);
+      g.fillStyle(E32.indigo, 1).fillRect(bx, y + 15, barW, 4);
+      g.fillStyle(E32.cyan, 1).fillRect(bx, y + 15, Math.round(barW * Phaser.Math.Clamp(next, 0, 1)), 4);
     }
   }
 
@@ -662,7 +664,7 @@ export class UIScene extends Phaser.Scene {
       const lv = z.levels[u.id];
       const top = u.values.length - 1;
       const maxed = lv >= top;
-      // 다음 값은 앞 글자 없이 ("1시간에 1% → 1.25%")
+      // 다음 값은 앞 글자 없이 ("최대 HP 100 → 150")
       const cur = `${u.pre}${u.values[lv]}${u.unit}`;
       const nxt = maxed ? null : `${u.values[lv + 1]}${u.unit}`;
       row(i, u.name, cur, nxt, [lv, top], maxed ? '최대' : DEV ? '개발: 올리기' : '비용 미정', DEV && !maxed, () => again(z.upgrade(u.id)));
