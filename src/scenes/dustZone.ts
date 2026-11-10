@@ -7,13 +7,14 @@ import { Interactable } from '../entities/props';
 
 /**
  * 보라 먼지 평원의 하루 (설계 문서 4장·14장).
- * - 하루 18시간 (아르곤 원자 번호 18), 실제 10초 = 1시간. 0~10시 낮(100초), 10~18시 밤(80초). 10일을 버팀.
+ * - 하루 18시간 (아르곤 원자 번호 18), 실제 10초 = 1시간. 0~10시 낮(100초), 10~18시 밤(80초).
+ * - 목표는 구역 산소화 100%: 산소탑이 1시간에 1%씩 (낮·밤 모두, 빨리 감기 땐 같이 빨라짐). 날 수 제한은 없음.
  * - 낮에 N을 누르면 밤까지 빨리 감기 (그동안 수소 구멍 타이머·날씨도 빨리 돎).
  * - 처음 아이오딘 광석 8·나트륨 광석 4·수소 구멍 5를 랜덤으로. 이틀마다 아침(3·5·7·9일차)에 아이오딘 2·나트륨 1이
  *   투명했다가 천천히 나타남. E로 캐기 (곡괭이 세 번).
  *   광물 그림은 art/minerals/*_ore.png (24×24 칸마다 모양 하나, 놓을 때 랜덤으로 고름).
  * - 산소: 산소 5개 들고 시작, 불 뿜기(점화) 한 번에 하나. 가운데 산소탑이 1시간에 하나씩 최대 5개까지 모아 두고,
- *   탑에서 E → 창이 떠서 받음.
+ *   탑에서 E → 창이 떠서 받음. 같은 창에 업그레이드·상점 탭 (비용은 아직 안 정해서 틀만).
  * - 수소 구멍: 위에 수소가 없으면 6시간 뒤 수소 하나를 내뿜음 (게임 시작 때 바로 하나). 밤에도.
  */
 export const DAY_HOURS = 18;
@@ -22,14 +23,37 @@ const SEC_PER_HOUR = 10;
 /** 밤 5초 전부터 가운데에 "밤까지 5 · 4 · 3 · 2 · 1". 빨리 감기(N)도 여기서 멈춤 */
 const COUNTDOWN_SEC = 5;
 export const NIGHT_WARN_AT = NIGHT_AT - COUNTDOWN_SEC / SEC_PER_HOUR;
-const DAYS = 10;
+/** 구역 산소화 목표 (%). 다 차면 이 구역을 다 개척한 것 */
+export const OXY_GOAL = 100;
 const HOLE_HOURS = 6;
 /** 빨리 감기 배속: 낮 10시간도 6초 남짓 */
 export const FF_SPEED = 16;
 const START_O2 = 5;
-/** 산소탑: TOWER_HOURS시간마다 산소 하나, TOWER_MAX개까지 모아 둠 */
+/** 산소탑이 모아 두는 산소 개수 */
 export const TOWER_MAX = 5;
-const TOWER_HOURS = 1;
+
+/**
+ * 산소탑 업그레이드. values[단계] = 그 단계의 값 (0단계 = 처음 값).
+ * 숫자는 모두 임시. 비용은 아직 안 정해서 (설계서 16장) 게임에서는 올릴 수 없고, ?dev 에서만 그냥 올려 볼 수 있음.
+ * 비용이 정해지면 여기에 단계별 비용을 넣고 DustZone.upgrade에서 치르게.
+ */
+export type UpgradeId = 'oxy' | 'make' | 'hp';
+export interface TowerUpgrade {
+  id: UpgradeId;
+  name: string;
+  values: number[];
+  /** 값 앞뒤에 붙는 글: "1시간에 " + 1.25 + "%" */
+  pre: string;
+  unit: string;
+}
+export const TOWER_UPGRADES: TowerUpgrade[] = [
+  // 구역 산소화: 1시간에 몇 %
+  { id: 'oxy', name: '산소화 속도', values: [1, 1.25, 1.5, 2], pre: '1시간에 ', unit: '%' },
+  // 탑이 모으는 산소: 1시간에 몇 개
+  { id: 'make', name: '산소 생산', values: [1, 1.25, 1.5, 2], pre: '1시간에 ', unit: '개' },
+  // 탑 최대 HP (0단계는 RoomScene의 TANK_HP와 같아야 함)
+  { id: 'hp', name: '내구도', values: [100, 150, 200, 250], pre: '최대 HP ', unit: '' },
+];
 /** 처음 광석 수, 그리고 SPAWN_EVERY일마다 아침에 새로 생기는 광석 수 */
 const START_ORES = { iodine_ore: 8, sodium_ore: 4 } as const;
 const SPAWN_EVERY = 2;
@@ -88,14 +112,18 @@ export class DustZone {
   hour = 0;
   /** 밤까지 빨리 감는 중 */
   ff = false;
-  /** 10일을 버팀 (시계 멈춤) */
+  /** 구역 산소화 (0 ~ OXY_GOAL %) */
+  oxy = 0;
+  /** 산소화를 다 채움 (시계 멈춤) */
   done = false;
+  /** 산소탑 업그레이드 단계 */
+  readonly levels: Record<UpgradeId, number> = { oxy: 0, make: 0, hp: 0 };
   private holes: Hole[] = [];
   /** 놓인 것들 자리 (서로 겹치지 않게) */
   private spots: { x: number; y: number }[] = [];
-  /** 산소탑에 모인 산소, 다음 하나까지 남은 시간(시간 단위). 가득 차 있는 동안은 1시간에 멈춤 */
+  /** 산소탑에 모인 산소, 다음 하나까지 찬 정도 (0~1). 가득 차 있는 동안은 0에 멈춤 */
   towerO2 = 0;
-  towerLeft = TOWER_HOURS;
+  towerNext = 0;
   private readonly keyN: Phaser.Input.Keyboard.Key;
   /** 광물 몸통 (플레이어만 부딪힘) */
   private readonly solid: Phaser.Physics.Arcade.StaticGroup;
@@ -146,7 +174,9 @@ export class DustZone {
         playSfx('select');
       }
       const before = this.hour;
-      this.hour += (dt * this.speed) / SEC_PER_HOUR;
+      /** 이번 프레임에 흐른 게임 시간 (시간 단위) */
+      const hours = (dt * this.speed) / SEC_PER_HOUR;
+      this.hour += hours;
       if (this.ff && Math.floor(this.hour) !== Math.floor(before)) playSfx('tick');
       // 빨리 감기는 밤 5초 전에서 멈추고, 거기서부터는 보통 빠르기로 카운트다운
       if (this.ff && this.hour >= NIGHT_WARN_AT) {
@@ -165,14 +195,16 @@ export class DustZone {
         this.s.banner('밤이 왔어요', E32.steel);
       }
       if (this.hour >= DAY_HOURS) this.newDay();
-      if (this.towerO2 >= TOWER_MAX) this.towerLeft = TOWER_HOURS;
-      else if ((this.towerLeft -= (dt * this.speed) / SEC_PER_HOUR) <= 0) {
-        this.towerLeft += TOWER_HOURS;
+      if (this.towerO2 >= TOWER_MAX) this.towerNext = 0;
+      else if ((this.towerNext += hours * this.value('make')) >= 1) {
+        this.towerNext -= 1;
         this.towerO2++;
       }
+      this.oxy = Math.min(OXY_GOAL, this.oxy + hours * this.value('oxy'));
+      if (this.oxy >= OXY_GOAL) this.finish();
       for (const h of this.holes) {
         if (this.s.chem.ventFull(h.x, h.y)) h.left = HOLE_HOURS;
-        else if ((h.left -= (dt * this.speed) / SEC_PER_HOUR) <= 0) {
+        else if ((h.left -= hours) <= 0) {
           h.left = HOLE_HOURS;
           this.s.chem.vent(h.x, h.y);
         }
@@ -184,22 +216,49 @@ export class DustZone {
 
   private newDay(): void {
     this.hour -= DAY_HOURS;
-    if (this.day >= DAYS) {
-      this.done = true;
-      this.hour = 0;
-      this.s.banner(`${DAYS}일을 버텼어요!`, E32.yellow);
-      return;
-    }
     this.day++;
     this.s.banner(`${this.day}일차 아침`, E32.yellow);
     if ((this.day - 1) % SPAWN_EVERY === 0) this.placeMinerals(SPAWN_ORES, true);
+  }
+
+  /** 산소화 100%: 시계가 멈추고 빨리 감기도 풀림 (그다음은 아직 없음) */
+  private finish(): void {
+    this.done = true;
+    if (this.ff) {
+      this.ff = false;
+      this.s.player.inputLocked = false;
+    }
+    this.s.banner(`구역 산소화 ${OXY_GOAL}%!`, E32.cyan);
+    playSfx('heal');
   }
 
   // ───────────────────────── 산소탑 ─────────────────────────
 
   private openTower(): void {
     if (this.mining || this.s.player.inputLocked) return;
-    this.s.requestUi({ type: 'tower', stored: this.towerO2, max: TOWER_MAX, next: 1 - this.towerLeft / TOWER_HOURS });
+    this.s.requestUi({ type: 'tower' });
+  }
+
+  /** 업그레이드의 지금 값 */
+  value(id: UpgradeId): number {
+    return TOWER_UPGRADES.find((u) => u.id === id)!.values[this.levels[id]];
+  }
+
+  /** 한 단계 올림 (비용은 아직 없음). 끝 단계면 false */
+  upgrade(id: UpgradeId): boolean {
+    const def = TOWER_UPGRADES.find((u) => u.id === id)!;
+    if (this.levels[id] >= def.values.length - 1) return false;
+    this.levels[id]++;
+    if (id === 'hp') this.s.tank?.setMaxHp(this.value('hp'));
+    return true;
+  }
+
+  /** 탑 HP를 가득 채움 (비용은 아직 없음). 이미 가득이면 false */
+  repair(): boolean {
+    const t = this.s.tank;
+    if (!t || t.hp >= t.maxHp) return false;
+    t.repair();
+    return true;
   }
 
   /** 탑에 모인 산소를 모두 받음 */

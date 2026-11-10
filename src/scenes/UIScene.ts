@@ -11,7 +11,8 @@ import { META_DEF, buySecondary, buyStat, meta, primaryFor, saveMeta, secondaryS
 import { playSfx, toggleMute } from '../audio/sfx';
 import { BELTS, CHEM_COLOR, GAS_REAGENTS, LIQUID_REAGENTS, REAGENTS, formulaText, REAGENT_COLOR, THROW_CD, makeChemTextures, type ChemEvent, type ChemTerm, type Reagent } from '../chem/chemistry';
 import { formulaLine, joinTerms, type FormulaPiece, type FormulaText } from '../chem/formula';
-import { DAY_HOURS, NIGHT_AT, NIGHT_WARN_AT } from './dustZone';
+import { DAY_HOURS, NIGHT_AT, NIGHT_WARN_AT, OXY_GOAL, TOWER_MAX, TOWER_UPGRADES } from './dustZone';
+import { TOWER_FLASH_SEC, TOWER_LOW, towerBlink, towerHpRamp } from '../entities/tower';
 import { paintDustMinimap } from '../art/tileset';
 
 /** 미니맵: 바닥 이만큼(px)이 미니맵 1px */
@@ -40,6 +41,16 @@ const digitPixels = (str: string, x: number, y: number): [number, number][] =>
   [...str].flatMap((ch, k) => [...DIGITS[+ch]].flatMap((b, i) => (b === '1' ? [[x + k * 4 + (i % 3), y + Math.floor(i / 3)] as [number, number]] : [])));
 /** 위 가운데 화학식 줄의 y */
 const CHEM_Y = 36;
+/** 산소화 막대 (시계 바로 아래): 안쪽 폭·높이·윗변 y */
+const OXY_W = 64;
+const OXY_H = 5;
+const OXY_Y = 28;
+/** HUD 산소탑 아이콘 (7×9): 돔 뚜껑, 청록 유리관, 받침 */
+const TOWER_ICON = ['..sSs..', '.sSSSs.', '.scccs.', '.scwcs.', '.scccs.', '.scccs.', 'sSSSSSs', 'sSdddSs', 'sSSSSSs'];
+const TOWER_ICON_COLOR: Record<string, number> = { s: E32.steel, S: E32.silver, c: E32.cyan, w: E32.white, d: E32.night };
+/** 산소탑 창의 탭 */
+const TOWER_TABS = ['산소', '업그레이드', '상점'] as const;
+const DEV = new URLSearchParams(location.search).has('dev');
 
 const reactionColor = (reaction: string): number => {
   const r = [...DATA.primary, ...DATA.stack].find((x) => x.id === reaction);
@@ -76,6 +87,12 @@ export class UIScene extends Phaser.Scene {
   private shownBelt = 0;
   private beltAnim = { k: 1 };
   private chemGen = 0;
+  /** 골드·정수 아이콘 (산소탑이 있는 맵에서는 그 자리에 탑 HP) */
+  private runIcons: Phaser.GameObjects.Image[] = [];
+  private towerIcon!: Phaser.GameObjects.Image;
+  /** 산소화 막대: 지난 프레임의 %, 1%가 오를 때 숫자가 번쩍이는 남은 시간(ms 시각) */
+  private oxyShown = 0;
+  private oxyFlashUntil = 0;
 
   constructor() {
     super('UI');
@@ -168,8 +185,10 @@ export class UIScene extends Phaser.Scene {
     g = this.mmG.clear();
     if (r.tank) {
       const [tx, ty] = at(r.tank.x, r.tank.y - 8);
-      g.fillStyle(E32.black, 1).fillRect(tx - 2, ty - 2, 5, 5);
-      g.fillStyle(0x2ce8f5, 1).fillRect(tx - 1, ty - 1, 3, 3);
+      // 방금 맞았으면 1초 동안 빨갛게 깜빡
+      const hurt = r.tank.sinceHit < 1 && Math.floor(this.time.now / 120) % 2 === 0;
+      g.fillStyle(hurt ? E32.white : E32.black, 1).fillRect(tx - 2, ty - 2, 5, 5);
+      g.fillStyle(hurt ? E32.red : E32.cyan, 1).fillRect(tx - 1, ty - 1, 3, 3);
     }
     for (const e of r.enemies) {
       if (e.dead) continue;
@@ -207,8 +226,11 @@ export class UIScene extends Phaser.Scene {
     t('bossName', W / 2, 3, 10, toCss(C.fire0)).setOrigin(0.5, 0);
     t('bossShield', W / 2, 21, 8).setOrigin(0.5, 0);
     this.hud.add(this.icon(10, 8, 'heart'));
-    this.hud.add(this.icon(9, 23, 'gold'));
-    this.hud.add(this.icon(45, 23, 'essence'));
+    this.runIcons = [this.icon(9, 23, 'gold'), this.icon(45, 23, 'essence')];
+    this.hud.add(this.runIcons);
+    t('towerHp', 22, 17);
+    this.towerIcon = this.add.image(6, 17, this.towerIconTexture()).setOrigin(0);
+    this.hud.add(this.towerIcon);
     makeChemTextures(this);
     for (const rg of REAGENTS) {
       // 기체 = 시험관, 액체 = 삼각 플라스크, 고체 = 병
@@ -226,7 +248,9 @@ export class UIScene extends Phaser.Scene {
     // 먼지 평원 시계 (위 가운데)
     t('clockDay', W / 2 - 15, 8).setOrigin(1, 0);
     t('clockHour', W / 2 + 15, 8);
-    t('clockHint', W / 2, 26, 8, toCss(E32.steel)).setOrigin(0.5, 0);
+    t('oxyLabel', W / 2 - OXY_W / 2 - 5, OXY_Y - 2, 8, toCss(E32.silver)).setOrigin(1, 0).setText('산소화');
+    t('oxyPct', W / 2 + OXY_W / 2 + 5, OXY_Y - 2);
+    t('clockHint', W / 2, 38, 8, toCss(E32.steel)).setOrigin(0.5, 0);
     this.slotLayer.add(t('fkey', 0, 0, 8, toCss(E32.steel)).setText('F'));
     this.mmImg = this.add.image(0, 0, '__DEFAULT').setOrigin(0);
     this.mmG = this.add.graphics();
@@ -319,7 +343,7 @@ export class UIScene extends Phaser.Scene {
     if (req.type === 'boons') this.openBoons(req.options, req.source);
     else if (req.type === 'relics') this.openRelics(req.options);
     else if (req.type === 'altar') this.openAltar();
-    else if (req.type === 'tower') this.openTower(req.stored, req.max, req.next);
+    else if (req.type === 'tower') this.openTower(0, true);
     else this.openResult(req.victory, req.title);
   }
 
@@ -429,62 +453,213 @@ export class UIScene extends Phaser.Scene {
 
   // ───────────────────────── 산소탑 ─────────────────────────
 
-  /** 탑에 모인 산소 칸 + 다음 산소까지 막대. E·받기 = 모두 받기, Esc·닫기 */
-  private openTower(stored: number, max: number, next: number) {
-    const opened = this.time.now;
+  /** HUD 산소탑 아이콘 그림 (어두운 테두리 1px) */
+  private towerIconTexture(): string {
+    const key = 'hud_tower';
+    if (this.textures.exists(key)) return key;
+    const tex = this.textures.createCanvas(key, TOWER_ICON[0].length + 2, TOWER_ICON.length + 2)!;
+    const ctx = tex.getContext();
+    const each = (fn: (ch: string, u: number, v: number) => void) => TOWER_ICON.forEach((row, v) => [...row].forEach((ch, u) => ch !== '.' && fn(ch, u, v)));
+    ctx.fillStyle = DARK;
+    each((_ch, u, v) => ctx.fillRect(u, v, 3, 3));
+    each((ch, u, v) => {
+      ctx.fillStyle = toCss(TOWER_ICON_COLOR[ch]);
+      ctx.fillRect(u + 1, v + 1, 1, 1);
+    });
+    tex.refresh();
+    return key;
+  }
+
+  /** 시계 아래 산소화 막대: "산소화 [████░░] 37%". 1%가 오를 때마다 숫자와 막대 끝이 잠깐 하얗게 */
+  private drawOxygenation(g: Phaser.GameObjects.Graphics, oxy: number): void {
+    const T = this.texts;
+    const pct = Math.floor(oxy + 1e-6);
+    const full = oxy >= OXY_GOAL;
+    if (pct > this.oxyShown) this.oxyFlashUntil = this.time.now + 220;
+    this.oxyShown = pct;
+    const flash = this.time.now < this.oxyFlashUntil;
+    const x = W / 2 - OXY_W / 2;
+    const fw = Math.round((OXY_W * Math.min(oxy, OXY_GOAL)) / OXY_GOAL);
+    g.fillStyle(E32.black, 1).fillRect(x - 2, OXY_Y - 2, OXY_W + 4, OXY_H + 4);
+    g.fillStyle(full ? E32.lime : E32.slate, 1).fillRect(x - 1, OXY_Y - 1, OXY_W + 2, OXY_H + 2);
+    g.fillStyle(E32.teal, 1).fillRect(x, OXY_Y, OXY_W, OXY_H);
+    if (fw > 0) {
+      g.fillStyle(full ? E32.lime : E32.cyan, 1).fillRect(x, OXY_Y, fw, OXY_H);
+      g.fillStyle(E32.white, 1).fillRect(x, OXY_Y, fw, 1);
+      g.fillStyle(full ? E32.green : E32.blue, 1).fillRect(x, OXY_Y + OXY_H - 1, fw, 1);
+      // 막대 끝: 차오르는 자리가 밝게
+      if (!full) g.fillStyle(E32.white, flash ? 1 : 0.6).fillRect(x + fw - 1, OXY_Y, 1, OXY_H);
+    }
+    // 1/4마다 눈금
+    g.fillStyle(E32.black, 0.5);
+    for (let k = 1; k < 4; k++) g.fillRect(x + (OXY_W * k) / 4, OXY_Y + 2, 1, OXY_H - 2);
+    T.oxyLabel.setColor(toCss(full ? E32.lime : E32.silver));
+    T.oxyPct.setText(`${pct}%`).setColor(toCss(flash ? E32.white : full ? E32.lime : E32.cyan));
+  }
+
+  /**
+   * 산소탑 창. 위에 이름과 탑 HP, 그 아래 탭 셋 (1·2·3, ←→, 클릭):
+   * 산소 = 모인 산소 받기 (E), 업그레이드 = 항목·단계 (비용 미정이라 틀만), 상점 = 빈 탭.
+   * fromWorld: 탑에서 E로 막 연 것 (그 E가 바로 받기로 이어지지 않게 잠깐 기다림)
+   */
+  private openTower(tab = 0, fromWorld = false) {
+    const z = this.room()?.zone;
+    const tk = this.room()?.tank;
+    if (!z || !tk) return;
+    const opened = fromWorld ? this.time.now : -1e9;
+    const stored = z.towerO2;
+    const max = TOWER_MAX;
     const take = () => {
       if (!stored) return playSfx('deny');
       this.closeOverlay();
-      this.room()?.zone?.takeTowerO2();
+      z.takeTowerO2();
     };
-    const SL = 24;
-    const GAPX = 4;
-    const pw = 168;
-    const ph = 94;
+    const go = (n: number) => {
+      if (n === tab) return;
+      playSfx('select');
+      this.openTower(n);
+    };
+    const pw = 284;
+    const ph = 152;
     const px = Math.round((W - pw) / 2);
-    const py = Math.round((H - ph) / 2) - 10;
-    const x0 = Math.round(W / 2 - (max * SL + (max - 1) * GAPX) / 2);
-    const barW = max * SL + (max - 1) * GAPX - 46;
+    const py = Math.round((H - ph) / 2) - 4;
+    const tabW = 62;
+    const tabY = py + 24;
+    const bodyY = tabY + 15;
     this.openOverlay(
       (c, g) => {
         this.panel(g, px, py, pw, ph, E32.cyan);
-        c.add(this.txt(W / 2, py + 5, '산소탑', 12, toCss(E32.cyan)).setOrigin(0.5, 0));
-        for (let k = 0; k < max; k++) {
-          const x = x0 + k * (SL + GAPX);
-          const y = py + 26;
-          g.fillStyle(E32.black, 1);
-          g.fillRect(x, y, SL, SL);
-          g.fillStyle(k < stored ? E32.slate : E32.indigo, 1);
-          g.fillRect(x, y, SL, 1);
-          g.fillRect(x, y + SL - 1, SL, 1);
-          g.fillRect(x, y, 1, SL);
-          g.fillRect(x + SL - 1, y, 1, SL);
-          const tube = this.add.image(x + 4, y + 3, 'tube').setOrigin(0).setAlpha(k < stored ? 1 : 0.2);
-          c.add(tube);
-          if (k < stored) {
-            const sym = this.add.image(0, 0, this.formulaTexture('O2')).setOrigin(0);
-            c.add(sym.setPosition(x + 12 - (sym.width >> 1), y + 12 - (sym.height >> 1)));
-          }
-        }
-        const by = py + 56;
-        c.add(this.txt(x0, by, '다음 산소', 8, toCss(E32.steel)));
-        if (stored >= max) c.add(this.txt(x0 + 46, by, '가득 찼어요', 8, toCss(E32.lime)));
+        // 머리: 이름 + 탑 HP
+        c.add(this.add.image(px + 8, py + 6, this.towerIconTexture()).setOrigin(0));
+        c.add(this.txt(px + 21, py + 5, '산소탑', 12, toCss(E32.cyan)));
+        const hw = 60;
+        const hx = px + pw - 10 - hw;
+        const [main, hi, lo] = towerHpRamp(tk.frac);
+        const hf = tk.hp > 0 ? Math.max(1, Math.round(hw * tk.frac)) : 0;
+        g.fillStyle(E32.black, 1).fillRect(hx - 2, py + 8, hw + 4, 9);
+        g.fillStyle(E32.slate, 1).fillRect(hx - 1, py + 9, hw + 2, 7);
+        g.fillStyle(E32.night, 1).fillRect(hx, py + 10, hw, 5);
+        g.fillStyle(main, 1).fillRect(hx, py + 10, hf, 5);
+        g.fillStyle(hi, 1).fillRect(hx, py + 10, hf, 1);
+        g.fillStyle(lo, 1).fillRect(hx, py + 14, hf, 1);
+        c.add(this.txt(hx - 5, py + 8, `HP ${Math.ceil(tk.hp)}/${tk.maxHp}`, 8, toCss(E32.silver)).setOrigin(1, 0));
+        // 탭: 고른 탭은 청록 윗줄에 아래가 본문과 이어지고, 나머지는 어둡게
+        g.fillStyle(E32.slate, 1).fillRect(px + 1, bodyY - 1, pw - 2, 1);
+        TOWER_TABS.forEach((name, i) => {
+          const x = px + 8 + i * (tabW + 2);
+          const on = i === tab;
+          const tg = this.add.graphics();
+          const draw = (hover: boolean) => {
+            tg.clear();
+            tg.fillStyle(E32.slate, 1).fillRect(x, tabY, tabW, 14);
+            tg.fillStyle(on ? E32.night : hover ? E32.indigo : E32.black, 1).fillRect(x + 1, tabY + 1, tabW - 2, on ? 14 : 13);
+            if (on) tg.fillStyle(E32.cyan, 1).fillRect(x, tabY, tabW, 2);
+          };
+          draw(false);
+          const label = this.txt(x + tabW / 2, tabY + 8, `${i + 1} ${name}`, 8, toCss(on ? E32.cyan : E32.steel)).setOrigin(0.5);
+          const zone = this.add.zone(x, tabY, tabW, 14).setOrigin(0).setInteractive({ useHandCursor: !on });
+          zone.on('pointerover', () => !on && (draw(true), playSfx('hover')));
+          zone.on('pointerout', () => draw(false));
+          zone.on('pointerup', () => go(i));
+          c.add([tg, label, zone]);
+        });
+        if (tab === 0) this.towerOxygenTab(c, g, bodyY, stored, max, z.towerNext);
+        else if (tab === 1) this.towerUpgradeTab(c, px, pw, bodyY);
         else {
-          g.fillStyle(E32.indigo, 1);
-          g.fillRect(x0 + 46, by + 4, barW, 4);
-          g.fillStyle(E32.cyan, 1);
-          g.fillRect(x0 + 46, by + 4, Math.round(barW * Phaser.Math.Clamp(next, 0, 1)), 4);
+          c.add(this.txt(W / 2, bodyY + 30, '아직 들어온 물건이 없어요', 10, toCss(E32.steel)).setOrigin(0.5, 0));
+          c.add(this.txt(W / 2, bodyY + 46, '상점은 준비 중이에요', 8, toCss(E32.slate)).setOrigin(0.5, 0));
         }
-        this.button(c, W / 2 - 66, py + 72, 62, 14, '받기 E', take, stored > 0, E32.cyan);
-        this.button(c, W / 2 + 4, py + 72, 62, 14, '닫기 Esc', () => this.closeOverlay(), true, E32.steel);
+        // 바닥: 조작 안내 + 버튼
+        const by = py + ph - 20;
+        c.add(this.txt(px + 10, by + 3, '1·2·3 탭 바꾸기', 8, toCss(E32.slate)));
+        if (tab === 0) this.button(c, px + pw - 138, by, 62, 14, '받기 E', take, stored > 0, E32.cyan);
+        this.button(c, px + pw - 72, by, 62, 14, '닫기 Esc', () => this.closeOverlay(), true, E32.steel);
       },
       (k) => {
+        const n = TOWER_TABS.length;
+        if (k === 'Escape') this.closeOverlay();
+        else if (k >= '1' && k <= String(n)) go(Number(k) - 1);
+        else if (k === 'ArrowRight' || k === 'd' || k === 'D' || k === 'ㅇ' || k === 'Tab') go((tab + 1) % n);
+        else if (k === 'ArrowLeft' || k === 'a' || k === 'A' || k === 'ㅁ') go((tab + n - 1) % n);
         // 탑을 연 그 E가 바로 받기로 이어지지 않게 잠깐 기다림
-        if ((k === 'e' || k === 'E' || k === 'ㄷ') && this.time.now - opened > 150) take();
-        else if (k === 'Escape') this.closeOverlay();
+        else if (tab === 0 && (k === 'e' || k === 'E' || k === 'ㄷ') && this.time.now - opened > 150) take();
       },
       0.4,
     );
+  }
+
+  /** 산소 탭: 모인 산소 칸(찬 칸은 O₂ 시험관) + 다음 산소까지 막대 */
+  private towerOxygenTab(c: Phaser.GameObjects.Container, g: Phaser.GameObjects.Graphics, y0: number, stored: number, max: number, next: number) {
+    const SL = 24;
+    const GAPX = 4;
+    const x0 = Math.round(W / 2 - (max * SL + (max - 1) * GAPX) / 2);
+    const barW = max * SL + (max - 1) * GAPX - 46;
+    c.add(this.txt(x0, y0 + 9, `모인 산소 ${stored}/${max}`, 8, toCss(E32.silver)));
+    for (let k = 0; k < max; k++) {
+      const x = x0 + k * (SL + GAPX);
+      const y = y0 + 23;
+      g.fillStyle(E32.black, 1);
+      g.fillRect(x, y, SL, SL);
+      g.fillStyle(k < stored ? E32.slate : E32.indigo, 1);
+      g.fillRect(x, y, SL, 1);
+      g.fillRect(x, y + SL - 1, SL, 1);
+      g.fillRect(x, y, 1, SL);
+      g.fillRect(x + SL - 1, y, 1, SL);
+      c.add(this.add.image(x + 4, y + 3, 'tube').setOrigin(0).setAlpha(k < stored ? 1 : 0.2));
+      if (k < stored) {
+        const sym = this.add.image(0, 0, this.formulaTexture('O2')).setOrigin(0);
+        c.add(sym.setPosition(x + 12 - (sym.width >> 1), y + 12 - (sym.height >> 1)));
+      }
+    }
+    const by = y0 + 55;
+    c.add(this.txt(x0, by, '다음 산소', 8, toCss(E32.steel)));
+    if (stored >= max) c.add(this.txt(x0 + 46, by, '가득 찼어요', 8, toCss(E32.lime)));
+    else {
+      g.fillStyle(E32.indigo, 1);
+      g.fillRect(x0 + 46, by + 4, barW, 4);
+      g.fillStyle(E32.cyan, 1);
+      g.fillRect(x0 + 46, by + 4, Math.round(barW * Phaser.Math.Clamp(next, 0, 1)), 4);
+    }
+  }
+
+  /**
+   * 업그레이드 탭: 줄마다 이름 · 지금 값(→ 다음 값) · 단계 칸 · 버튼, 마지막 줄은 수리.
+   * 비용을 아직 안 정해서 버튼은 "비용 미정"으로 꺼져 있고, ?dev 에서만 그냥 눌러 볼 수 있음.
+   */
+  private towerUpgradeTab(c: Phaser.GameObjects.Container, px: number, pw: number, y0: number) {
+    const z = this.room()?.zone;
+    const tk = this.room()?.tank;
+    if (!z || !tk) return;
+    const pg = this.add.graphics();
+    c.add(pg);
+    const ROW = 20;
+    const bw = 58;
+    const bx = px + pw - 12 - bw;
+    const row = (i: number, name: string, value: string, next: string | null, pips: [number, number] | null, label: string, enabled: boolean, onClick: () => void) => {
+      const y = y0 + 8 + i * ROW;
+      if (i > 0) pg.fillStyle(E32.indigo, 1).fillRect(px + 10, y - 4, pw - 20, 1);
+      c.add(this.txt(px + 12, y + 2, name, 8));
+      const v = this.txt(px + 74, y + 2, value, 8, toCss(E32.silver));
+      c.add(v);
+      if (next) c.add(this.txt(v.x + v.width + 4, y + 2, `→ ${next}`, 8, toCss(E32.cyan)));
+      if (pips) for (let k = 0; k < pips[1]; k++) pg.fillStyle(E32.black, 1).fillRect(px + 181 + k * 9, y + 3, 8, 8).fillStyle(k < pips[0] ? E32.cyan : E32.indigo, 1).fillRect(px + 182 + k * 9, y + 4, 6, 6);
+      this.button(c, bx, y, bw, 13, label, onClick, enabled, E32.cyan);
+    };
+    const again = (ok: boolean) => {
+      playSfx(ok ? 'buy' : 'deny');
+      if (ok) this.openTower(1);
+    };
+    TOWER_UPGRADES.forEach((u, i) => {
+      const lv = z.levels[u.id];
+      const top = u.values.length - 1;
+      const maxed = lv >= top;
+      // 다음 값은 앞 글자 없이 ("1시간에 1% → 1.25%")
+      const cur = `${u.pre}${u.values[lv]}${u.unit}`;
+      const nxt = maxed ? null : `${u.values[lv + 1]}${u.unit}`;
+      row(i, u.name, cur, nxt, [lv, top], maxed ? '최대' : DEV ? '개발: 올리기' : '비용 미정', DEV && !maxed, () => again(z.upgrade(u.id)));
+    });
+    const hurt = tk.hp < tk.maxHp;
+    row(TOWER_UPGRADES.length, '수리', `HP ${Math.ceil(tk.hp)}/${tk.maxHp}`, null, null, !hurt ? '멀쩡해요' : DEV ? '개발: 수리' : '비용 미정', DEV && hurt, () => again(z.repair()));
   }
 
   private openAltar() {
@@ -709,6 +884,30 @@ export class UIScene extends Phaser.Scene {
     T.hp.setText(`${Math.ceil(p.hp)}/${p.maxHp}`);
     T.gold.setText(run ? `${run.gold}` : '-');
     T.essence.setText(run ? `${run.essence}` : `${meta.essence}`);
+    // 산소탑이 있는 맵: 골드·정수 자리에 탑 HP (플레이어 HP와 같은 크기, 색은 HP 비율을 따라)
+    const tk = r.tank;
+    for (const o of [T.gold, T.essence, ...this.runIcons]) o.setVisible(!tk);
+    T.towerHp.setVisible(!!tk);
+    this.towerIcon.setVisible(!!tk);
+    if (tk) {
+      const tf = tk.frac;
+      const [main, hi, lo] = towerHpRamp(tf);
+      const flash = tk.sinceHit < TOWER_FLASH_SEC;
+      const low = tf <= TOWER_LOW && tk.hp > 0;
+      g.fillStyle(flash ? E32.white : low && towerBlink(this.time.now) ? E32.red : E32.black, 1);
+      g.fillRect(18, 16, hpW + 2, 11);
+      g.fillStyle(E32.night);
+      g.fillRect(19, 17, hpW, 9);
+      const fw = tk.hp > 0 ? Math.max(1, Math.round(hpW * tf)) : 0;
+      const gw = Math.round((hpW * tk.ghost) / tk.maxHp);
+      if (gw > fw) g.fillStyle(E32.white).fillRect(19 + fw, 17, gw - fw, 9);
+      g.fillStyle(main).fillRect(19, 17, fw, 9);
+      g.fillStyle(hi).fillRect(19, 17, fw, 2);
+      g.fillStyle(lo).fillRect(19, 25, fw, 1);
+      g.fillStyle(E32.black, 0.45);
+      for (let k = 1; k < 4; k++) g.fillRect(19 + (hpW * k) / 4, 22, 1, 4);
+      T.towerHp.setText(`${Math.ceil(tk.hp)}/${tk.maxHp}`);
+    }
 
     // 시약 줄 (왼쪽 아래): 지금 줄 1~4칸이 앞, F로 바꿀 다른 줄은 그 뒤에 그림자처럼 어둡게 겹쳐 있음.
     // F를 누르면 앞 줄은 살짝 내려가며 뒤로, 뒤 줄은 떠오르며 앞으로 (가운데서 앞뒤 그리는 순서가 바뀜)
@@ -803,7 +1002,7 @@ export class UIScene extends Phaser.Scene {
 
     // 먼지 평원 시계: 18시간 원판 (위쪽이 0시, 시계 방향). 바깥 띠는 낮 10시간 노랑 + 밤 8시간 남색, 바늘이 지금 시각
     const z = r.zone;
-    for (const k of ['clockDay', 'clockHour', 'clockHint']) T[k].setVisible(!!z);
+    for (const k of ['clockDay', 'clockHour', 'clockHint', 'oxyLabel', 'oxyPct']) T[k].setVisible(!!z);
     this.mmImg.setVisible(!!z);
     this.mmG.setVisible(!!z);
     if (z) {
@@ -821,7 +1020,9 @@ export class UIScene extends Phaser.Scene {
       T.clockDay.setText(`${z.day}일차`);
       T.clockHour.setText(`${z.hour < NIGHT_AT ? '낮' : '밤'} ${Math.floor(z.hour)}시`).setColor(toCss(z.hour < NIGHT_AT ? E32.amber : E32.steel));
       const blink = Math.floor(this.time.now / 250) % 2 === 0;
-      T.clockHint.setText(z.done ? '' : z.ff ? `빨리 감는 중${blink ? ' ▶▶' : ''}` : z.hour < NIGHT_WARN_AT ? 'N 밤까지 기다리기' : '');
+      // 안내는 산소화 막대 아래. 화학식이 떠 있는 동안은 그 자리라 숨김
+      T.clockHint.setText(z.done || this.chemLine ? '' : z.ff ? `빨리 감는 중${blink ? ' ▶▶' : ''}` : z.hour < NIGHT_WARN_AT ? 'N 밤까지 기다리기' : '');
+      this.drawOxygenation(g, z.oxy);
       this.drawMinimap(g, r);
     }
 
@@ -1001,7 +1202,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   private objective(r: RoomScene): string {
-    if (r.zone) return ''; // 먼지 평원은 이 자리에 미니맵 (10일을 버티면 가운데 알림으로)
+    if (r.zone) return ''; // 먼지 평원은 이 자리에 미니맵 (산소화를 다 채우면 가운데 알림으로)
     if (r.mode === 'hub') return r.trial ? '2차 반응 체험 중\n허수아비에 연계해 보세요' : '허수아비로 연습';
     if (r.state === 'dead') return '';
     if (r.mode === 'boss') return r.state === 'victory' ? '승리!' : '';

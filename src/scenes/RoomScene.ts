@@ -18,6 +18,7 @@ import { Golem } from '../entities/boss';
 import { Slime } from '../entities/slime';
 import { DustWeather } from '../art/dustWeather';
 import { DustZone } from './dustZone';
+import { OxygenTower } from '../entities/tower';
 import { Door, Pickup, Interactable, Dummy, REWARD_COLOR } from '../entities/props';
 import type { Actor } from '../entities/actor';
 import {
@@ -87,14 +88,16 @@ export type UiRequest =
   | { type: 'boons'; options: BoonDef[]; source: 'reward' | 'shop' }
   | { type: 'relics'; options: RelicDef[] }
   | { type: 'altar' }
-  | { type: 'tower'; stored: number; max: number; next: number }
+  | { type: 'tower' }
   | { type: 'result'; victory: boolean; title?: string };
 
 export class RoomScene extends Phaser.Scene {
   player!: Player;
   enemies: (Enemy | Slime)[] = [];
   boss: Golem | null = null;
-  tank: { x: number; y: number; hp: number; maxHp: number; img: Phaser.GameObjects.Image; bar: Phaser.GameObjects.Graphics } | null = null;
+  tank: OxygenTower | null = null;
+  /** 화면 밖 산소탑이 맞을 때 알림을 마지막으로 띄운 시각 (gameTime) */
+  private tankWarnAt = -99;
   private labWave = 0;
   private labQueued = 0;
   private labResting = false;
@@ -155,6 +158,7 @@ export class RoomScene extends Phaser.Scene {
     this.enemies = [];
     this.boss = null;
     this.tank = null;
+    this.tankWarnAt = -99;
     this.labWave = 0;
     this.labQueued = 0;
     this.labResting = false;
@@ -282,8 +286,7 @@ export class RoomScene extends Phaser.Scene {
       this.glows.push({ x, y: y - 48, r: 66, color: 0x2ce8f5, a: 0.5 });
       const blk = this.walls.create(x, y - 8, 'px') as Phaser.Physics.Arcade.Sprite;
       blk.setVisible(false).setDisplaySize(TILE * 2, TILE).refreshBody();
-      this.tank = { x, y, hp: TANK_HP, maxHp: TANK_HP, img, bar: this.add.graphics().setDepth(DEPTH.hud) };
-      this.drawTankBar();
+      this.tank = new OxygenTower(this, x, y, img, TANK_HP);
     }
     // 입구 철창
     if (this.mode !== 'hub') {
@@ -569,6 +572,7 @@ export class RoomScene extends Phaser.Scene {
       this.updateWaves(dt);
       this.updateAmbient(dt);
       this.zone?.update(dt);
+      this.tank?.update(dt);
       this.weather?.update(dt * (this.zone?.speed ?? 1));
     }
 
@@ -973,24 +977,20 @@ export class RoomScene extends Phaser.Scene {
   hitTank(dmg: number): void {
     const t = this.tank;
     if (!t || this.state !== 'play') return;
-    t.hp = Math.max(0, t.hp - dmg);
-    this.drawTankBar();
-    this.vfx.number(t.x, t.y - 82, dmg, 0xf6757a, false);
+    t.damage(dmg);
+    // 탑이 화면 밖에서 맞으면 알려 줌 (6초에 한 번)
+    if (t.hp > 0 && this.gameTime - this.tankWarnAt > 6 && !this.cameras.main.worldView.contains(t.x, t.y - 40)) {
+      this.tankWarnAt = this.gameTime;
+      this.banner('산소탑이 공격받고 있어요!', 0xe43b44);
+      playSfx('deny');
+    }
+    this.vfx.number(t.x, t.y - 96, dmg, 0xf6757a, false);
     t.img.setTintFill(0xffffff);
     this.time.delayedCall(60, () => t.img.clearTint());
     playSfx('hit');
     if (t.hp > 0) return;
     this.vfx.explosion(t.x, t.y - 40, 40, 0x2ce8f5);
     this.onPlayerDeath('산소탑 파괴');
-  }
-
-  private drawTankBar(): void {
-    const t = this.tank!;
-    const w = 28;
-    const top = t.y - 86;
-    t.bar.clear();
-    t.bar.fillStyle(C.out, 0.9).fillRect(t.x - w / 2 - 1, top - 1, w + 2, 4);
-    t.bar.fillStyle(0x2ce8f5).fillRect(t.x - w / 2, top, Math.ceil((w * t.hp) / t.maxHp), 2);
   }
 
   /** 결과 화면 확인 → 런 종료 (정수·숙련도는 메타로) → 성소 */
