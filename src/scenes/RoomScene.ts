@@ -1010,6 +1010,9 @@ export class RoomScene extends Phaser.Scene {
       this.pending = 0;
       this.scheduler.clear();
       for (const e of this.enemies) e.die();
+    } else if (ev.key === 'o' && this.zone) {
+      // 먼지 평원: 업그레이드 비용을 바로 시험해 볼 수 있게
+      this.chem.gain([['O2', 10], ['H2O', 10]], this.player.x, this.player.y - 30);
     } else if (ev.key === 'g' && this.run) {
       this.run.gold += 200;
     } else if (ev.key === 'b' && this.run) {

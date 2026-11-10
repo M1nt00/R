@@ -4,6 +4,7 @@ import { DEPTH } from '../config';
 import { E32 } from '../art/palette';
 import { playSfx } from '../audio/sfx';
 import { Interactable } from '../entities/props';
+import type { Reagent } from '../chem/chemistry';
 
 /**
  * 보라 먼지 평원의 하루 (설계 문서 4장·14장).
@@ -33,27 +34,34 @@ const START_O2 = 5;
 export const TOWER_MAX = 2;
 
 /**
- * 산소탑 업그레이드. values[단계] = 그 단계의 값 (0단계 = 처음 값).
- * 숫자는 모두 임시. 비용은 아직 안 정해서 (설계서 16장) 게임에서는 올릴 수 없고, ?dev 에서만 그냥 올려 볼 수 있음.
- * 비용이 정해지면 여기에 단계별 비용을 넣고 DustZone.upgrade에서 치르게.
+ * 산소탑 업그레이드. 단계마다 값이 step씩 늘고 (0단계 = base), max번까지.
+ * 비용은 가진 시약으로 치름: 첫 비용 cost.base개, 한 번 올릴 때마다 cost.step개씩 늘어남.
+ * cost가 null이면 아직 안 정한 것 (게임에서는 못 올리고, ?dev 에서만 그냥 올려 볼 수 있음).
  */
 export type UpgradeId = 'oxy' | 'make' | 'hp';
 export interface TowerUpgrade {
   id: UpgradeId;
   name: string;
-  values: number[];
-  /** 값 앞뒤에 붙는 글: "" + 1.25 + "%/시간", "최대 HP " + 150 + "" */
+  base: number;
+  step: number;
+  max: number;
+  /** 값 앞뒤에 붙는 글: "" + 1.1 + "%/시간", "최대 HP " + 150 + "" */
   pre: string;
   unit: string;
+  cost: { reagent: Reagent; name: string; base: number; step: number } | null;
 }
 export const TOWER_UPGRADES: TowerUpgrade[] = [
-  // 구역 산소화 (%/시간)
-  { id: 'oxy', name: '산소화 속도', values: [1, 1.25, 1.5, 2], pre: '', unit: '%/시간' },
-  // 탑이 모으는 산소 (개/시간)
-  { id: 'make', name: '산소 생산', values: [0.5, 0.75, 1, 1.5], pre: '', unit: '개/시간' },
-  // 탑 최대 HP (0단계는 RoomScene의 TANK_HP와 같아야 함)
-  { id: 'hp', name: '내구도', values: [100, 150, 200, 250], pre: '최대 HP ', unit: '' },
+  // 구역 산소화 (%/시간): 1 → 2. 산소 5 · 10 · 15 … 50개
+  { id: 'oxy', name: '산소화 속도', base: 1, step: 0.1, max: 10, pre: '', unit: '%/시간', cost: { reagent: 'O2', name: '산소', base: 5, step: 5 } },
+  // 탑이 모으는 산소 (개/시간): 0.5 → 1.5. 물 2 · 4 · 6 … 20개
+  { id: 'make', name: '산소 생산', base: 0.5, step: 0.1, max: 10, pre: '', unit: '개/시간', cost: { reagent: 'H2O', name: '물', base: 2, step: 2 } },
+  // 탑 최대 HP (base는 RoomScene의 TANK_HP와 같아야 함). 숫자는 임시, 비용 미정
+  { id: 'hp', name: '내구도', base: 100, step: 50, max: 3, pre: '최대 HP ', unit: '', cost: null },
 ];
+/** 업그레이드의 lv단계 값 (0.1씩 더한 값이 0.30000000000000004처럼 되지 않게 다듬음) */
+export const upgradeValue = (u: TowerUpgrade, lv: number): number => Math.round((u.base + u.step * lv) * 1000) / 1000;
+/** lv단계에서 다음 단계로 올리는 비용 (개). 비용을 안 정한 항목은 null */
+export const upgradeCost = (u: TowerUpgrade, lv: number): number | null => (u.cost ? u.cost.base + u.cost.step * lv : null);
 /** 처음 광석 수, 그리고 SPAWN_EVERY일마다 아침에 새로 생기는 광석 수 */
 const START_ORES = { iodine_ore: 8, sodium_ore: 4 } as const;
 const SPAWN_EVERY = 2;
@@ -241,13 +249,28 @@ export class DustZone {
 
   /** 업그레이드의 지금 값 */
   value(id: UpgradeId): number {
-    return TOWER_UPGRADES.find((u) => u.id === id)!.values[this.levels[id]];
+    return upgradeValue(TOWER_UPGRADES.find((u) => u.id === id)!, this.levels[id]);
   }
 
-  /** 한 단계 올림 (비용은 아직 없음). 끝 단계면 false */
-  upgrade(id: UpgradeId): boolean {
+  /** 가진 시약 개수 (비용 표시용) */
+  have(r: Reagent): number {
+    return this.s.chem.stock?.[r] ?? 0;
+  }
+
+  /** 지금 올릴 수 있나: 끝 단계가 아니고 비용만큼 가졌을 때. 비용을 안 정한 항목은 free(?dev)일 때만 */
+  canUpgrade(id: UpgradeId, free = false): boolean {
     const def = TOWER_UPGRADES.find((u) => u.id === id)!;
-    if (this.levels[id] >= def.values.length - 1) return false;
+    if (this.levels[id] >= def.max) return false;
+    const cost = upgradeCost(def, this.levels[id]);
+    return cost === null ? free : this.have(def.cost!.reagent) >= cost;
+  }
+
+  /** 비용을 치르고 한 단계 올림. 못 올리면 false */
+  upgrade(id: UpgradeId, free = false): boolean {
+    if (!this.canUpgrade(id, free)) return false;
+    const def = TOWER_UPGRADES.find((u) => u.id === id)!;
+    const cost = upgradeCost(def, this.levels[id]);
+    if (cost !== null) for (let k = 0; k < cost; k++) this.s.chem.spend(def.cost!.reagent);
     this.levels[id]++;
     if (id === 'hp') this.s.tank?.setMaxHp(this.value('hp'));
     return true;

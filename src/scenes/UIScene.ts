@@ -11,7 +11,7 @@ import { META_DEF, buySecondary, buyStat, meta, primaryFor, saveMeta, secondaryS
 import { playSfx, toggleMute } from '../audio/sfx';
 import { BELTS, CHEM_COLOR, GAS_REAGENTS, LIQUID_REAGENTS, REAGENTS, formulaText, REAGENT_COLOR, THROW_CD, makeChemTextures, type ChemEvent, type ChemTerm, type Reagent } from '../chem/chemistry';
 import { formulaLine, joinTerms, type FormulaPiece, type FormulaText } from '../chem/formula';
-import { DAY_HOURS, NIGHT_AT, NIGHT_WARN_AT, OXY_GOAL, TOWER_MAX, TOWER_UPGRADES } from './dustZone';
+import { DAY_HOURS, NIGHT_AT, NIGHT_WARN_AT, OXY_GOAL, TOWER_MAX, TOWER_UPGRADES, upgradeCost, upgradeValue } from './dustZone';
 import { TOWER_FLASH_SEC, TOWER_LOW, towerBlink, towerHpRamp } from '../entities/tower';
 import { paintDustMinimap } from '../art/tileset';
 
@@ -521,7 +521,7 @@ export class UIScene extends Phaser.Scene {
       this.openTower(n);
     };
     const pw = 284;
-    const ph = 136;
+    const ph = 146;
     const px = Math.round((W - pw) / 2);
     const py = Math.round((H - ph) / 2) - 4;
     const tabW = 62;
@@ -653,7 +653,12 @@ export class UIScene extends Phaser.Scene {
       const v = this.txt(px + 74, y + 2, value, 8, toCss(E32.silver));
       c.add(v);
       if (next) c.add(this.txt(v.x + v.width + 4, y + 2, `→ ${next}`, 8, toCss(E32.cyan)));
-      for (let k = 0; k < pips[1]; k++) pg.fillStyle(E32.black, 1).fillRect(px + 181 + k * 9, y + 3, 8, 8).fillStyle(k < pips[0] ? E32.cyan : E32.indigo, 1).fillRect(px + 182 + k * 9, y + 4, 6, 6);
+      // 단계 칸: 5단계까지는 네모 칸, 그보다 많으면 가는 눈금 (오른쪽 끝을 버튼 앞에 맞춤)
+      const [lv, top] = pips;
+      const cw = top <= 5 ? 6 : 2;
+      const x0 = bx - 6 - top * (cw + 1) - 1;
+      pg.fillStyle(E32.black, 1).fillRect(x0, y + 3, top * (cw + 1) + 1, 8);
+      for (let k = 0; k < top; k++) pg.fillStyle(k < lv ? E32.cyan : E32.indigo, 1).fillRect(x0 + 1 + k * (cw + 1), y + 4, cw, 6);
       this.button(c, bx, y, bw, 13, label, onClick, enabled, E32.cyan);
     };
     const again = (ok: boolean) => {
@@ -662,13 +667,20 @@ export class UIScene extends Phaser.Scene {
     };
     TOWER_UPGRADES.forEach((u, i) => {
       const lv = z.levels[u.id];
-      const top = u.values.length - 1;
-      const maxed = lv >= top;
+      const maxed = lv >= u.max;
+      const cost = upgradeCost(u, lv);
       // 다음 값은 앞 글자 없이 ("최대 HP 100 → 150")
-      const cur = `${u.pre}${u.values[lv]}${u.unit}`;
-      const nxt = maxed ? null : `${u.values[lv + 1]}${u.unit}`;
-      row(i, u.name, cur, nxt, [lv, top], maxed ? '최대' : DEV ? '개발: 올리기' : '비용 미정', DEV && !maxed, () => again(z.upgrade(u.id)));
+      const cur = `${u.pre}${upgradeValue(u, lv)}${u.unit}`;
+      const nxt = maxed ? null : `${upgradeValue(u, lv + 1)}${u.unit}`;
+      // 버튼 글 = 비용 ("산소 5개"). 모자라면 꺼짐. 비용을 안 정한 항목은 ?dev 에서만 그냥 올림
+      const label = maxed ? '최대' : cost !== null ? `${u.cost!.name} ${cost}개` : DEV ? '개발: 올리기' : '비용 미정';
+      row(i, u.name, cur, nxt, [lv, u.max], label, z.canUpgrade(u.id, DEV), () => again(z.upgrade(u.id, DEV)));
     });
+    // 가진 재료 (비용으로 쓰는 것만)
+    const owned = [...new Map(TOWER_UPGRADES.filter((u) => u.cost).map((u) => [u.cost!.reagent, u.cost!.name])).entries()];
+    const oy = y0 + 8 + TOWER_UPGRADES.length * ROW;
+    pg.fillStyle(E32.indigo, 1).fillRect(px + 10, oy - 4, pw - 20, 1);
+    c.add(this.txt(px + 12, oy + 1, `가진 재료   ${owned.map(([r, name]) => `${name} ${z.have(r)}개`).join('  ·  ')}`, 8, toCss(E32.steel)));
   }
 
   private openAltar() {
