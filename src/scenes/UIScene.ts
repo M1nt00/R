@@ -500,6 +500,7 @@ export class UIScene extends Phaser.Scene {
   /**
    * 산소탑 창. 위에 이름과 탑 HP, 그 아래 탭 셋 (1·2·3, ←→, 클릭):
    * 산소 = 모인 산소 받기 (E), 업그레이드 = 항목·단계 (비용 미정이라 틀만), 상점 = 빈 탭.
+   * 수리는 업그레이드 목록이 아니라 머리의 탑 HP 옆 버튼.
    * fromWorld: 탑에서 E로 막 연 것 (그 E가 바로 받기로 이어지지 않게 잠깐 기다림)
    */
   private openTower(tab = 0, fromWorld = false) {
@@ -520,7 +521,7 @@ export class UIScene extends Phaser.Scene {
       this.openTower(n);
     };
     const pw = 284;
-    const ph = 152;
+    const ph = 136;
     const px = Math.round((W - pw) / 2);
     const py = Math.round((H - ph) / 2) - 4;
     const tabW = 62;
@@ -529,11 +530,20 @@ export class UIScene extends Phaser.Scene {
     this.openOverlay(
       (c, g) => {
         this.panel(g, px, py, pw, ph, E32.cyan);
-        // 머리: 이름 + 탑 HP
+        // 머리: 이름 + 탑 HP + 수리 (어느 탭에서나 보임)
         c.add(this.add.image(px + 8, py + 6, this.towerIconTexture()).setOrigin(0));
         c.add(this.txt(px + 21, py + 5, '산소탑', 12, toCss(E32.cyan)));
-        const hw = 60;
-        const hx = px + pw - 10 - hw;
+        // 수리 비용을 아직 안 정해서 꺼져 있고, ?dev 에서만 그냥 눌러 볼 수 있음
+        const rw = 58;
+        const rx = px + pw - 10 - rw;
+        const hurt = tk.hp < tk.maxHp;
+        this.button(c, rx, py + 6, rw, 13, !hurt ? '멀쩡해요' : DEV ? '개발: 수리' : '수리 미정', () => {
+          const ok = z.repair();
+          playSfx(ok ? 'buy' : 'deny');
+          if (ok) this.openTower(tab);
+        }, DEV && hurt, E32.cyan);
+        const hw = 50;
+        const hx = rx - 7 - hw;
         const [main, hi, lo] = towerHpRamp(tk.frac);
         const hf = tk.hp > 0 ? Math.max(1, Math.round(hw * tk.frac)) : 0;
         g.fillStyle(E32.black, 1).fillRect(hx - 2, py + 8, hw + 4, 9);
@@ -623,26 +633,25 @@ export class UIScene extends Phaser.Scene {
   }
 
   /**
-   * 업그레이드 탭: 줄마다 이름 · 지금 값(→ 다음 값) · 단계 칸 · 버튼, 마지막 줄은 수리.
+   * 업그레이드 탭: 줄마다 이름 · 지금 값(→ 다음 값) · 단계 칸 · 버튼.
    * 비용을 아직 안 정해서 버튼은 "비용 미정"으로 꺼져 있고, ?dev 에서만 그냥 눌러 볼 수 있음.
    */
   private towerUpgradeTab(c: Phaser.GameObjects.Container, px: number, pw: number, y0: number) {
     const z = this.room()?.zone;
-    const tk = this.room()?.tank;
-    if (!z || !tk) return;
+    if (!z) return;
     const pg = this.add.graphics();
     c.add(pg);
     const ROW = 20;
     const bw = 58;
     const bx = px + pw - 12 - bw;
-    const row = (i: number, name: string, value: string, next: string | null, pips: [number, number] | null, label: string, enabled: boolean, onClick: () => void) => {
+    const row = (i: number, name: string, value: string, next: string | null, pips: [number, number], label: string, enabled: boolean, onClick: () => void) => {
       const y = y0 + 8 + i * ROW;
       if (i > 0) pg.fillStyle(E32.indigo, 1).fillRect(px + 10, y - 4, pw - 20, 1);
       c.add(this.txt(px + 12, y + 2, name, 8));
       const v = this.txt(px + 74, y + 2, value, 8, toCss(E32.silver));
       c.add(v);
       if (next) c.add(this.txt(v.x + v.width + 4, y + 2, `→ ${next}`, 8, toCss(E32.cyan)));
-      if (pips) for (let k = 0; k < pips[1]; k++) pg.fillStyle(E32.black, 1).fillRect(px + 181 + k * 9, y + 3, 8, 8).fillStyle(k < pips[0] ? E32.cyan : E32.indigo, 1).fillRect(px + 182 + k * 9, y + 4, 6, 6);
+      for (let k = 0; k < pips[1]; k++) pg.fillStyle(E32.black, 1).fillRect(px + 181 + k * 9, y + 3, 8, 8).fillStyle(k < pips[0] ? E32.cyan : E32.indigo, 1).fillRect(px + 182 + k * 9, y + 4, 6, 6);
       this.button(c, bx, y, bw, 13, label, onClick, enabled, E32.cyan);
     };
     const again = (ok: boolean) => {
@@ -658,8 +667,6 @@ export class UIScene extends Phaser.Scene {
       const nxt = maxed ? null : `${u.values[lv + 1]}${u.unit}`;
       row(i, u.name, cur, nxt, [lv, top], maxed ? '최대' : DEV ? '개발: 올리기' : '비용 미정', DEV && !maxed, () => again(z.upgrade(u.id)));
     });
-    const hurt = tk.hp < tk.maxHp;
-    row(TOWER_UPGRADES.length, '수리', `HP ${Math.ceil(tk.hp)}/${tk.maxHp}`, null, null, !hurt ? '멀쩡해요' : DEV ? '개발: 수리' : '비용 미정', DEV && hurt, () => again(z.repair()));
   }
 
   private openAltar() {
