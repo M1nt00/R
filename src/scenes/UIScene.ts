@@ -13,6 +13,7 @@ import { BELTS, CHEM_COLOR, GAS_REAGENTS, LIQUID_REAGENTS, REAGENTS, formulaText
 import { formulaLine, joinTerms, type FormulaPiece, type FormulaText } from '../chem/formula';
 import { DAY_HOURS, NIGHT_AT, NIGHT_WARN_AT, OXY_GOAL, TOWER_MAX, TOWER_UPGRADES, upgradeCost, upgradeValue } from './dustZone';
 import { TOWER_FLASH_SEC, TOWER_LOW, towerBlink, towerHpRamp } from '../entities/tower';
+import { REACTIONS, SUBSTANCES, codexCount, discoverReaction, discoverSubstance, isFresh, knowsReaction, knowsSubstance, markSeen, resetCodex, substanceOfReagent, type CodexReaction, type CodexSubstance } from '../run/codex';
 import { paintDustMinimap } from '../art/tileset';
 
 /** 미니맵: 바닥 이만큼(px)이 미니맵 1px */
@@ -51,6 +52,12 @@ const TOWER_ICON_COLOR: Record<string, number> = { s: E32.steel, S: E32.silver, 
 /** 산소탑 창의 탭 */
 const TOWER_TABS = ['산소', '업그레이드', '상점'] as const;
 const DEV = new URLSearchParams(location.search).has('dev');
+/** 도감 탭, 물질 탭의 한 줄 칸 수 (두 줄로 나눠 놓음) */
+const CODEX_TABS = ['물질', '반응식'] as const;
+const CODEX_ROWS = 10;
+/** 도감 등록 알림이 떠 있는 시간 (ms), 오른쪽 위 첫 줄의 y */
+const TOAST_MS = 2800;
+const TOAST_Y = 64;
 
 const reactionColor = (reaction: string): number => {
   const r = [...DATA.primary, ...DATA.stack].find((x) => x.id === reaction);
@@ -93,6 +100,8 @@ export class UIScene extends Phaser.Scene {
   /** 산소화 막대: 지난 프레임의 %, 1%가 오를 때 숫자가 번쩍이는 남은 시간(ms 시각) */
   private oxyShown = 0;
   private oxyFlashUntil = 0;
+  /** 도감 등록 알림 (오른쪽 위, 위에서부터 쌓임) */
+  private toasts: Phaser.GameObjects.Container[] = [];
 
   constructor() {
     super('UI');
@@ -267,6 +276,16 @@ export class UIScene extends Phaser.Scene {
     this.game.events.on('ui:open', (req: UiRequest) => this.handleRequest(req));
     this.game.events.on('roomEnter', () => this.refreshRelicIcons());
     this.game.events.on('chem', (ev: ChemEvent) => this.onChem(ev));
+    // 반응식을 처음 일으키면 도감에 등록 (결과가 화면에 나온 뒤에 알림)
+    this.game.events.on('chem', (ev: ChemEvent) => {
+      if (ev.type !== 'equation') return;
+      const got = discoverReaction(ev.lhs, ev.rhs);
+      if (!got) return console.warn('[도감] 표에 없는 반응식', ev.lhs.map((t) => t.f).join(' + '), '→', ev.rhs.map((t) => t.f).join(' + '));
+      this.time.delayedCall(ev.revealAt * 1000 + 400, () => {
+        if (got.reaction) this.codexToast(got.reaction);
+        for (const sub of got.substances) this.codexToast(sub);
+      });
+    });
 
     const kb = this.input.keyboard!;
     kb.on('keydown', (ev: KeyboardEvent) => {
@@ -275,7 +294,10 @@ export class UIScene extends Phaser.Scene {
         return;
       }
       if (ev.key === 'h' || ev.key === 'H' || ev.key === 'Escape') this.openHelp();
+      else if (ev.key === 'Tab' && this.room()) this.openCodex();
     });
+    // Tab이 브라우저의 초점 옮기기로 새지 않게
+    kb.addCapture('TAB');
     kb.on('keydown-M', () => {
       const m = toggleMute();
       this.game.events.emit('banner', m ? '소리 끔' : '소리 켬', E32.silver);
@@ -683,6 +705,218 @@ export class UIScene extends Phaser.Scene {
     c.add(this.txt(px + 12, oy + 1, `가진 재료   ${owned.map(([r, name]) => `${name} ${z.have(r)}개`).join('  ·  ')}`, 8, toCss(E32.steel)));
   }
 
+  // ───────────────────────── 도감 ─────────────────────────
+
+  /** 도감 등록 알림: 오른쪽 위에 "도감 등록 H₂O 물" 또는 반응식이 잠깐 떴다 사라짐 */
+  private codexToast(entry: CodexSubstance | CodexReaction): void {
+    const c = this.add.container(0, 0);
+    const tag = this.txt(0, 1, '도감 등록', 8, toCss(E32.yellow));
+    const arrow: FormulaPiece = { f: '→', color: E32.silver, op: true };
+    const pieces: FormulaPiece[] = 'lhs' in entry ? [...joinTerms(entry.lhs, CHEM_COLOR.op), arrow, ...joinTerms(entry.rhs, CHEM_COLOR.op)] : [{ f: entry.f, color: entry.color }];
+    const fl = formulaLine(this, pieces, 'small');
+    fl.c.setPosition(Math.round(tag.width) + 5, 0);
+    let w = fl.c.x + fl.w;
+    const parts: Phaser.GameObjects.GameObject[] = [tag, fl.c];
+    if (!('lhs' in entry)) {
+      const name = this.txt(w + 4, 1, entry.name, 8);
+      parts.push(name);
+      w = name.x + Math.round(name.width);
+    }
+    const bg = this.add.graphics();
+    bg.fillStyle(E32.black, 0.6).fillRect(-4, -2, w + 8, 15);
+    bg.fillStyle(E32.yellow, 1).fillRect(-4, -2, 1, 15);
+    c.add([bg, ...parts]);
+    const x = W - 6 - w;
+    c.setPosition(x + 16, TOAST_Y + this.toasts.length * 17).setAlpha(0);
+    this.toasts.push(c);
+    playSfx('pickup');
+    this.tweens.add({ targets: c, x, alpha: 1, duration: 180, ease: 'Cubic.easeOut' });
+    this.tweens.add({
+      targets: c,
+      alpha: 0,
+      delay: TOAST_MS,
+      duration: 400,
+      onComplete: () => {
+        this.toasts = this.toasts.filter((o) => o !== c);
+        c.destroy();
+        // 남은 알림은 위로 당김
+        this.toasts.forEach((o, i) => this.tweens.add({ targets: o, y: TOAST_Y + i * 17, duration: 150 }));
+      },
+    });
+  }
+
+  /**
+   * 도감 (Tab). 왼쪽에 목록, 오른쪽에 고른 항목의 설명. 등록 전 항목은 ???.
+   * 탭: 1 물질 · 2 반응식 (클릭도 됨). 방향키·WASD로 고르기, Tab·Esc로 닫기.
+   * 새로 등록되고 아직 안 본 항목은 노란 점.
+   */
+  private openCodex(tab = 0, sel = -1) {
+    const subs = tab === 0;
+    const n = subs ? SUBSTANCES.length : REACTIONS.length;
+    const known = (i: number) => (subs ? knowsSubstance(SUBSTANCES[i].id) : knowsReaction(REACTIONS[i].id));
+    // 처음 열면 등록된 첫 항목을 고름
+    if (sel < 0) sel = Math.max(0, Array.from({ length: n }, (_, i) => i).findIndex(known));
+    const id = subs ? SUBSTANCES[sel].id : REACTIONS[sel].id;
+    if (known(sel)) markSeen(id);
+    const count = codexCount();
+    const go = (t: number, i = -1) => {
+      playSfx(t === tab ? 'hover' : 'select');
+      this.openCodex(t, i);
+    };
+    const arrow: FormulaPiece = { f: '→', color: E32.silver, op: true };
+    const equation = (r: CodexReaction) => formulaLine(this, [...joinTerms(r.lhs, CHEM_COLOR.op), arrow, ...joinTerms(r.rhs, CHEM_COLOR.op)], 'small');
+    const PX = 10;
+    const PY = 8;
+    const PW = W - 20;
+    const PH = H - 16;
+    const listX = PX + 8;
+    const listY = PY + 30;
+    const colW = subs ? 114 : 228;
+    const rowH = subs ? 15 : 14;
+    const dx = PX + 244;
+    const dw = PW - 244 - 8;
+    const dh = PH - 30 - 26;
+    this.openOverlay(
+      (c, g) => {
+        this.panel(g, PX, PY, PW, PH, E32.amber);
+        c.add(this.txt(PX + 10, PY + 6, '도감', 12, toCss(E32.yellow)));
+        // 탭
+        g.fillStyle(E32.slate, 1).fillRect(PX + 1, PY + 23, PW - 2, 1);
+        CODEX_TABS.forEach((name, i) => {
+          const tw = 92;
+          const x = PX + 48 + i * (tw + 2);
+          const y = PY + 9;
+          const on = i === tab;
+          const tg = this.add.graphics();
+          const draw = (hover: boolean) => {
+            tg.clear();
+            tg.fillStyle(E32.slate, 1).fillRect(x, y, tw, 14);
+            tg.fillStyle(on ? E32.night : hover ? E32.indigo : E32.black, 1).fillRect(x + 1, y + 1, tw - 2, on ? 14 : 13);
+            if (on) tg.fillStyle(E32.yellow, 1).fillRect(x, y, tw, 2);
+          };
+          draw(false);
+          const total = i === 0 ? SUBSTANCES.length : REACTIONS.length;
+          const have = i === 0 ? count.substances : count.reactions;
+          const label = this.txt(x + tw / 2, y + 8, `${i + 1} ${name} ${have}/${total}`, 8, toCss(on ? E32.yellow : E32.steel)).setOrigin(0.5);
+          const zone = this.add.zone(x, y, tw, 14).setOrigin(0).setInteractive({ useHandCursor: !on });
+          zone.on('pointerover', () => !on && (draw(true), playSfx('hover')));
+          zone.on('pointerout', () => draw(false));
+          zone.on('pointerup', () => !on && go(i));
+          c.add([tg, label, zone]);
+        });
+        // 목록
+        const lg = this.add.graphics();
+        c.add(lg);
+        for (let i = 0; i < n; i++) {
+          const x = listX + (subs ? Math.floor(i / CODEX_ROWS) * colW : 0);
+          const y = listY + (subs ? i % CODEX_ROWS : i) * rowH;
+          const on = i === sel;
+          const k = known(i);
+          if (on) {
+            lg.fillStyle(E32.indigo, 1).fillRect(x, y, colW - 4, rowH - 1);
+            lg.fillStyle(E32.yellow, 1).fillRect(x, y, 2, rowH - 1);
+          }
+          const ty = y + (rowH - 13) / 2;
+          if (!k) c.add(this.txt(x + 8, ty + 2, '???', 8, toCss(E32.slate)));
+          else if (subs) {
+            const e = SUBSTANCES[i];
+            const fl = formulaLine(this, [{ f: e.f, color: e.color }], 'small');
+            fl.c.setPosition(x + 8, ty);
+            c.add([fl.c, this.txt(x + 8 + fl.w + 4, ty + 2, e.name, 8, toCss(on ? E32.white : E32.silver))]);
+          } else {
+            const fl = equation(REACTIONS[i]);
+            fl.c.setPosition(x + 8, ty);
+            c.add(fl.c);
+          }
+          // 새로 등록되고 아직 안 본 항목
+          if (k && !on && isFresh(subs ? SUBSTANCES[i].id : REACTIONS[i].id)) lg.fillStyle(E32.yellow, 1).fillRect(x + 2, y + rowH / 2 - 2, 3, 3);
+          const zone = this.add.zone(x, y, colW - 4, rowH - 1).setOrigin(0).setInteractive({ useHandCursor: !on });
+          zone.on('pointerup', () => !on && go(tab, i));
+          c.add(zone);
+        }
+        // 설명 칸
+        g.fillStyle(E32.black, 1).fillRect(dx, listY, dw, dh);
+        g.fillStyle(E32.slate, 1);
+        g.fillRect(dx, listY, dw, 1).fillRect(dx, listY + dh - 1, dw, 1).fillRect(dx, listY, 1, dh).fillRect(dx + dw - 1, listY, 1, dh);
+        const tx = dx + 9;
+        const tw = dw - 18;
+        if (!known(sel)) {
+          c.add(this.txt(dx + dw / 2, listY + 60, '???', 24, toCss(E32.slate)).setOrigin(0.5, 0));
+          c.add(this.txt(dx + dw / 2, listY + 96, subs ? '아직 발견하지 못한 물질이에요' : '아직 일으켜 보지 못한 반응이에요', 8, toCss(E32.steel)).setOrigin(0.5, 0));
+        } else if (subs) {
+          const e = SUBSTANCES[sel];
+          const big = formulaLine(this, [{ f: e.f, color: e.color }], 'big');
+          big.c.setPosition(tx, listY + 7);
+          c.add(big.c);
+          c.add(this.txt(tx, listY + 42, e.name, 12));
+          // 상태 꼬리표 (오른쪽 위)
+          const st = this.txt(dx + dw - 9, listY + 9, e.state, 8, toCss(E32.night)).setOrigin(1, 0).setShadow(0, 0, DARK, 0);
+          g.fillStyle(E32.steel, 1).fillRect(st.x - Math.round(st.width) - 3, listY + 8, Math.round(st.width) + 6, 11);
+          c.add(st);
+          const desc = this.txt(tx, listY + 60, e.desc, 8, toCss(E32.silver)).setWordWrapWidth(tw, true);
+          c.add(desc);
+          // 이 물질이 나오는 반응식 (등록된 것만 보이고, 나머지는 ???)
+          const rel = REACTIONS.filter((r) => r.subs.includes(e.id));
+          let ry = Math.round(desc.y + desc.height) + 8;
+          g.fillStyle(E32.indigo, 1).fillRect(tx, ry - 4, tw, 1);
+          c.add(this.txt(tx, ry, `관련 반응 ${rel.filter((r) => knowsReaction(r.id)).length}/${rel.length}`, 8, toCss(E32.steel)));
+          ry += 12;
+          for (const r of rel) {
+            if (knowsReaction(r.id)) {
+              const fl = equation(r);
+              fl.c.setPosition(tx, ry - 1);
+              c.add(fl.c);
+            } else c.add(this.txt(tx, ry + 1, '???', 8, toCss(E32.slate)));
+            ry += 13;
+          }
+        } else {
+          const r = REACTIONS[sel];
+          const fl = equation(r);
+          fl.c.setPosition(tx, listY + 10);
+          c.add(fl.c);
+          g.fillStyle(E32.indigo, 1).fillRect(tx, listY + 30, tw, 1);
+          c.add(this.txt(tx, listY + 38, '조건', 8, toCss(E32.steel)));
+          c.add(this.txt(tx + 26, listY + 38, r.cond, 8, toCss(E32.yellow)));
+          const desc = this.txt(tx, listY + 54, r.desc, 8, toCss(E32.silver)).setWordWrapWidth(tw, true);
+          c.add(desc);
+          // 이 반응에 나오는 물질 (반응물·생성물)
+          let sy = Math.round(desc.y + desc.height) + 8;
+          g.fillStyle(E32.indigo, 1).fillRect(tx, sy - 4, tw, 1);
+          c.add(this.txt(tx, sy, '관련 물질', 8, toCss(E32.steel)));
+          sy += 12;
+          for (const sid of r.subs) {
+            const e = SUBSTANCES.find((x) => x.id === sid)!;
+            const sf = formulaLine(this, [{ f: e.f, color: e.color }], 'small');
+            sf.c.setPosition(tx, sy - 1);
+            c.add([sf.c, this.txt(tx + sf.w + 4, sy + 1, e.name, 8, toCss(E32.silver))]);
+            sy += 13;
+          }
+        }
+        // 바닥
+        const by = PY + PH - 20;
+        c.add(this.txt(PX + 10, by + 3, '방향키 고르기 · 1·2 탭 바꾸기', 8, toCss(E32.slate)));
+        if (DEV)
+          this.button(c, PX + PW - 148, by, 68, 14, '개발: 비우기', () => {
+            resetCodex();
+            this.openCodex(tab);
+          }, true, E32.red);
+        this.button(c, PX + PW - 72, by, 62, 14, '닫기 Tab', () => this.closeOverlay(), true, E32.steel);
+      },
+      (k) => {
+        const move = (d: number) => {
+          const to = sel + d;
+          if (to >= 0 && to < n) go(tab, to);
+        };
+        if (k === 'Escape' || k === 'Tab') this.closeOverlay();
+        else if (k === '1' || k === '2') Number(k) - 1 !== tab && go(Number(k) - 1);
+        else if (k === 'ArrowDown' || k === 's' || k === 'S' || k === 'ㄴ') move(1);
+        else if (k === 'ArrowUp' || k === 'w' || k === 'W' || k === 'ㅈ') move(-1);
+        else if (subs && (k === 'ArrowRight' || k === 'd' || k === 'D' || k === 'ㅇ')) move(CODEX_ROWS);
+        else if (subs && (k === 'ArrowLeft' || k === 'a' || k === 'A' || k === 'ㅁ')) move(-CODEX_ROWS);
+      },
+    );
+  }
+
   private openAltar() {
     const build = (c: Phaser.GameObjects.Container, g: Phaser.GameObjects.Graphics) => {
       this.panel(g, 10, 8, W - 20, H - 16, E32.magenta);
@@ -809,7 +1043,7 @@ export class UIScene extends Phaser.Scene {
           '좌클릭 불 뿜기 (불씨, 직접 피해 없음, 쿨타임 1.5초)',
           '1~4 지금 줄의 시약 던지기 · F 시약 줄 바꾸기',
           'E 상호작용 (던진 시약 다시 담기) · M 소리',
-          'H/ESC 일시정지 · N 밤까지 기다리기 (먼지 평원)',
+          'Tab 도감 · H/ESC 일시정지 · N 밤까지 기다리기',
           '',
           '[ 규칙 ]',
           '· 시약은 마우스 쪽으로 날아가요 (최대 150px)',
@@ -1079,7 +1313,12 @@ export class UIScene extends Phaser.Scene {
       T.bossName.setVisible(false);
       T.bossShield.setVisible(false);
     }
-    T.hint.setText('H 일시정지 · M 소리');
+    T.hint.setText('Tab 도감 · H 일시정지 · M 소리');
+    // 손에 들어온 시약은 도감에 등록
+    if (stock) for (const rg of REAGENTS) if (stock[rg] > 0) {
+      const sub = discoverSubstance(substanceOfReagent(rg));
+      if (sub) this.codexToast(sub);
+    }
   }
 
   // ───────────────────────── 화학식 (위 가운데) ─────────────────────────

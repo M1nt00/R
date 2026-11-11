@@ -5,6 +5,7 @@ import { E32 } from '../art/palette';
 import { playSfx } from '../audio/sfx';
 import { Interactable } from '../entities/props';
 import type { Reagent } from '../chem/chemistry';
+import { planet } from '../run/planet';
 
 /**
  * 보라 먼지 평원의 하루 (설계 문서 4장·14장).
@@ -34,7 +35,7 @@ const START_O2 = 5;
 export const TOWER_MAX = 2;
 
 /**
- * 산소탑 업그레이드. 단계마다 값이 step씩 늘고 (0단계 = base), max번까지.
+ * 산소탑 업그레이드. 단계마다 값이 step씩 늘고 (0단계 = base), max번까지. 올린 단계는 다음 구역으로 이어진다.
  * 비용은 가진 시약으로 치름: 첫 비용 cost.base개, 한 번 올릴 때마다 cost.step개씩 늘어남.
  * cost가 null이면 아직 안 정한 것 (게임에서는 못 올리고, ?dev 에서만 그냥 올려 볼 수 있음).
  */
@@ -124,8 +125,8 @@ export class DustZone {
   oxy = 0;
   /** 산소화를 다 채움 (시계 멈춤) */
   done = false;
-  /** 산소탑 업그레이드 단계 */
-  readonly levels: Record<UpgradeId, number> = { oxy: 0, make: 0, hp: 0 };
+  /** 산소탑 업그레이드 단계. 구역을 넘어 이어져서 행성 진행(run/planet.ts)에 있는 것을 그대로 씀 */
+  readonly levels: Record<UpgradeId, number> = planet.upgrades;
   private holes: Hole[] = [];
   /** 놓인 것들 자리 (서로 겹치지 않게) */
   private spots: { x: number; y: number }[] = [];
@@ -148,6 +149,8 @@ export class DustZone {
     this.spots.push({ x: s.player.x, y: s.player.y });
     // 가운데 산소탑 둘레도 비워 둠 (탑이 64px 높이라 위쪽까지)
     if (s.tank) {
+      // 앞 구역에서 올린 내구도는 이 구역의 탑에도
+      if (this.levels.hp > 0) s.tank.setMaxHp(this.value('hp'));
       this.spots.push({ x: s.tank.x, y: s.tank.y }, { x: s.tank.x, y: s.tank.y - 40 });
       s.interactables.push(new Interactable(s.tank.x, s.tank.y, 34, 'E 산소탑', () => this.openTower()));
     }
